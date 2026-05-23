@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-dark: hsl(220, 20%, 6%);
+  --color-surface-dark: hsl(220, 18%, 10%);
+  --color-surface-hover: hsl(220, 18%, 14%);
+  --color-border-dark: hsl(220, 15%, 18%);
+  --color-accent-teal: hsl(175, 80%, 50%);
+  --color-accent-glow: hsla(175, 80%, 50%, 0.15);
+  --color-text-primary: hsl(220, 10%, 92%);
+  --color-text-secondary: hsl(220, 10%, 55%);
+}
+
+@layer base {
+  body {
+    background-color: hsl(220, 20%, 6%);
+    color: hsl(220, 10%, 92%);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
