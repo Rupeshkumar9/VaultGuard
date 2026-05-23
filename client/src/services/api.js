@@ -29,7 +29,10 @@ export const clearToken = () => {
  */
 const request = async (endpoint, options = {}) => {
   // Use VITE_API_URL in production, fallback to relative path in dev (relying on proxy)
-  const apiBase = import.meta.env.VITE_API_URL || '';
+  let apiBase = import.meta.env.VITE_API_URL || '';
+  if (apiBase.endsWith('/')) {
+    apiBase = apiBase.slice(0, -1);
+  }
   const cleanEndpoint = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
   const url = `${apiBase}${cleanEndpoint}`;
 
