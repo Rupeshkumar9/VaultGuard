@@ -75,7 +75,7 @@ export const VaultProvider = ({ children }) => {
   }, [isUnlocked, decryptEntry]);
 
   // Add a new vault entry
-  const addEntry = async (entryData) => {
+  const addEntry = async (entryData, skipFetch = false) => {
     if (!isUnlocked) throw new Error('Vault is locked');
     setIsLoading(true);
     try {
@@ -96,7 +96,9 @@ export const VaultProvider = ({ children }) => {
       });
 
       if (response.success && response.data) {
-        await fetchEntries(); // Force refresh list from database and decrypt
+        if (!skipFetch) {
+          await fetchEntries(); // Force refresh list from database and decrypt
+        }
         return response.data;
       } else {
         throw new Error(response.message || 'Failed to create vault entry');
@@ -198,6 +200,46 @@ export const VaultProvider = ({ children }) => {
     }
   };
 
+  // Delete multiple entries (bulk delete)
+  const deleteEntries = async (ids) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post('/vault/delete-bulk', { ids });
+      if (response.success) {
+        setEntries(prev => prev.filter(entry => !ids.includes(entry._id)));
+      } else {
+        throw new Error(response.message || 'Failed to delete vault entries');
+      }
+    } catch (err) {
+      console.error('Error bulk deleting entries:', err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Update multiple entries (bulk update metadata)
+  const updateEntries = async (ids, updates) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post('/vault/update-bulk', { ids, updates });
+      if (response.success) {
+        setEntries(prev =>
+          prev.map(entry =>
+            ids.includes(entry._id) ? { ...entry, ...updates } : entry
+          )
+        );
+      } else {
+        throw new Error(response.message || 'Failed to update vault entries');
+      }
+    } catch (err) {
+      console.error('Error bulk updating entries:', err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Clear in-memory entries on lock
   const clearEntries = useCallback(() => {
     setEntries([]);
@@ -215,6 +257,8 @@ export const VaultProvider = ({ children }) => {
         toggleFavorite,
         updateLastUsed,
         deleteEntry,
+        deleteEntries,
+        updateEntries,
         clearEntries,
       }}
     >

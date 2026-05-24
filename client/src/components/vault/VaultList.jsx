@@ -3,41 +3,15 @@ import VaultCard from './VaultCard';
 import { Shield, Plus } from 'lucide-react';
 
 export default function VaultList({ 
-  entries, 
+  filteredEntries, 
   isLoading, 
   searchQuery, 
-  activeCategory, 
-  showFavoritesOnly,
   onSelectEntry, 
-  onOpenAddEntry 
+  onOpenAddEntry,
+  selectedIds = [],
+  onToggleSelectEntry
 }) {
   
-  // Filter entries based on search, category, and favorite status
-  const filteredEntries = entries.filter((entry) => {
-    // 1. Favorite filter
-    if (showFavoritesOnly && !entry.isFavorite) {
-      return false;
-    }
-
-    // 2. Category filter
-    if (activeCategory !== 'All' && entry.category !== activeCategory) {
-      return false;
-    }
-
-    // 3. Search query filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const titleMatch = entry.title?.toLowerCase().includes(q);
-      const websiteMatch = entry.website?.toLowerCase().includes(q);
-      const usernameMatch = entry.username?.toLowerCase().includes(q);
-      const notesMatch = entry.notes?.toLowerCase().includes(q);
-      const categoryMatch = entry.category?.toLowerCase().includes(q);
-      return titleMatch || websiteMatch || usernameMatch || notesMatch || categoryMatch;
-    }
-
-    return true;
-  });
-
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -99,6 +73,8 @@ export default function VaultList({
           key={entry._id} 
           entry={entry} 
           onSelect={onSelectEntry} 
+          isSelected={selectedIds.includes(entry._id)}
+          onToggleSelect={onToggleSelectEntry}
         />
       ))}
     </div>

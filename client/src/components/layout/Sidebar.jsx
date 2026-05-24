@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Shield, 
   Key, 
@@ -45,7 +46,8 @@ export default function Sidebar({
   setShowFavoritesOnly,
   onOpenAddEntry,
   onOpenGenerator,
-  onOpenSettings
+  onOpenSettings,
+  onLogoClick
 }) {
   const { logout } = useAuth();
   const { lock } = useCrypto();
@@ -84,14 +86,18 @@ export default function Sidebar({
   return (
     <aside className="w-64 bg-surface-dark border-r border-border-dark flex flex-col h-screen select-none shrink-0">
       {/* Brand Logo */}
-      <div className="h-16 border-b border-border-dark/50 flex items-center px-6 gap-3">
+      <Link
+        to="/"
+        onClick={onLogoClick}
+        className="h-16 border-b border-border-dark/50 flex items-center px-6 gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none"
+      >
         <div className="w-8 h-8 rounded-lg bg-accent-glow flex items-center justify-center border border-accent-teal/30">
           <Shield className="w-4 h-4 text-accent-teal" />
         </div>
         <span className="font-bold text-lg bg-gradient-to-r from-accent-teal to-cyan-400 bg-clip-text text-transparent tracking-tight">
           VaultGuard
         </span>
-      </div>
+      </Link>
 
       {/* Main Navigation */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-7 scrollbar-thin">

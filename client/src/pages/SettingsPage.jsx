@@ -17,7 +17,7 @@ import { useCrypto } from '../contexts/CryptoContext';
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const { entries, addEntry } = useVault();
+  const { entries, addEntry, fetchEntries, deleteEntry } = useVault();
   const { isUnlocked, decryptData } = useCrypto();
   const [isExportingDecrypted, setIsExportingDecrypted] = useState(false);
   const [isExportingEncrypted, setIsExportingEncrypted] = useState(false);
@@ -231,6 +231,8 @@ export default function SettingsPage() {
         setImportStatus(`Importing 0 of ${importedEntries.length}...`);
         let successCount = 0;
 
+        let skippedDuplicates = 0;
+
         for (let i = 0; i < importedEntries.length; i++) {
           const entry = importedEntries[i];
           
@@ -257,6 +259,20 @@ export default function SettingsPage() {
               }
             }
 
+            // Check if this credential already exists (De-duplication)
+            const isDuplicate = entries.some(existing => 
+              existing.title?.toLowerCase() === entry.title?.toLowerCase() &&
+              (existing.username || '').toLowerCase() === (plaintextUsername || '').toLowerCase() &&
+              (existing.website || '').replace(/\/$/, '').toLowerCase() === (entry.website || '').replace(/\/$/, '').toLowerCase()
+            );
+
+            if (isDuplicate) {
+              console.log('Skipping duplicate entry:', entry.title);
+              skippedDuplicates++;
+              continue;
+            }
+
+            // Add the entry with skipFetch = true to prevent quadratic DB queries
             await addEntry({
               title: entry.title,
               website: entry.website || '',
@@ -264,7 +280,8 @@ export default function SettingsPage() {
               username: plaintextUsername,
               password: plaintextPassword,
               notes: plaintextNotes
-            });
+            }, true);
+            
             successCount++;
             setImportStatus(`Importing ${successCount} of ${importedEntries.length}...`);
           } catch (err) {
@@ -272,7 +289,14 @@ export default function SettingsPage() {
           }
         }
 
-        setImportStatus(`Successfully imported ${successCount} credentials!`);
+        // Trigger a single batch fetchEntries at the very end
+        await fetchEntries();
+
+        if (skippedDuplicates > 0) {
+          setImportStatus(`Successfully imported ${successCount} credentials! (Skipped ${skippedDuplicates} duplicates)`);
+        } else {
+          setImportStatus(`Successfully imported ${successCount} credentials!`);
+        }
         e.target.value = null;
       } catch (err) {
         console.error(err);
@@ -290,6 +314,51 @@ export default function SettingsPage() {
 
     reader.readAsText(file);
   };
+
+  const handleRemoveDuplicates = async () => {
+    setIsImporting(true);
+    setImportStatus('Scanning for duplicates...');
+    setImportError('');
+
+    try {
+      const seen = new Map();
+      const duplicatesToDelete = [];
+
+      for (const entry of entries) {
+        const key = `${(entry.title || '').toLowerCase()}|${(entry.username || '').toLowerCase()}|${(entry.website || '').replace(/\/$/, '').toLowerCase()}`;
+        if (seen.has(key)) {
+          duplicatesToDelete.push(entry._id);
+        } else {
+          seen.set(key, entry._id);
+        }
+      }
+
+      if (duplicatesToDelete.length === 0) {
+        setImportStatus('No duplicates found in your vault!');
+        setIsImporting(false);
+        return;
+      }
+
+      setImportStatus(`Removing ${duplicatesToDelete.length} duplicate entries...`);
+      let deletedCount = 0;
+
+      for (const id of duplicatesToDelete) {
+        await deleteEntry(id);
+        deletedCount++;
+        setImportStatus(`Removed ${deletedCount} of ${duplicatesToDelete.length} duplicates...`);
+      }
+
+      // Re-fetch clean list
+      await fetchEntries();
+      setImportStatus(`Successfully removed all ${deletedCount} duplicates!`);
+    } catch (err) {
+      console.error(err);
+      setImportError('Failed to remove duplicates.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 text-left">
@@ -443,6 +512,19 @@ export default function SettingsPage() {
               className="hidden" 
             />
           </label>
+        </div>
+
+        {/* Extra Utilities */}
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={handleRemoveDuplicates}
+            disabled={entries.length === 0 || isImporting}
+            className="w-full py-3 px-4 rounded-xl bg-bg-dark hover:bg-bg-dark/80 border border-border-dark text-xs font-bold text-text-primary transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <AlertTriangle className="w-4 h-4 text-warning-color" />
+            <span>Scan & Clean Duplicate Entries</span>
+          </button>
         </div>
 
         {importStatus && (

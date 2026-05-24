@@ -40,7 +40,7 @@ const authLimiter = rateLimit({
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100, // Max 100 requests per 15 minutes for general API
+  max: 500, // Increased to 500 to allow successful bulk credential imports
   message: {
     success: false,
     message: 'Too many requests. Please slow down.',

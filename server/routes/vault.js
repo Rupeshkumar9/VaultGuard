@@ -218,6 +218,70 @@ router.patch('/:id/last-used', async (req, res, next) => {
 });
 
 // ──────────────────────────────────────────────
+// POST /api/vault/update-bulk
+// Update multiple vault entries in bulk
+// ──────────────────────────────────────────────
+router.post('/update-bulk', async (req, res, next) => {
+  try {
+    const { ids, updates } = req.body;
+    if (!ids || !Array.isArray(ids) || !updates) {
+      return res.status(400).json({
+        success: false,
+        message: 'IDs array and updates object are required.',
+      });
+    }
+
+    // Filter allowed bulk update fields (only non-sensitive metadata)
+    const allowedUpdates = {};
+    if (updates.title !== undefined) allowedUpdates.title = updates.title;
+    if (updates.category !== undefined) allowedUpdates.category = updates.category;
+    if (updates.website !== undefined) allowedUpdates.website = updates.website;
+
+    const result = await VaultEntry.updateMany(
+      { _id: { $in: ids }, user: req.user._id },
+      { $set: allowedUpdates }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} entries updated successfully.`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────────
+// POST /api/vault/delete-bulk
+// Delete multiple vault entries in bulk
+// ──────────────────────────────────────────────
+router.post('/delete-bulk', async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({
+        success: false,
+        message: 'An array of IDs is required for bulk deletion.',
+      });
+    }
+
+    const result = await VaultEntry.deleteMany({
+      _id: { $in: ids },
+      user: req.user._id,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `${result.deletedCount} entries deleted successfully.`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────────
 // DELETE /api/vault/:id
 // Delete a vault entry
 // ──────────────────────────────────────────────

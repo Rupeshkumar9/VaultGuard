@@ -4,7 +4,7 @@ import { getFaviconUrl, getDomain, formatRelativeTime } from '../../utils/helper
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 
-export default function VaultCard({ entry, onSelect }) {
+export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect }) {
   const { toggleFavorite, updateLastUsed } = useVault();
   const { copy: copyUsername, isCopied: isUsernameCopied } = useClipboard(10000);
   const { copy: copyPassword, isCopied: isPasswordCopied } = useClipboard(10000);
@@ -42,7 +42,7 @@ export default function VaultCard({ entry, onSelect }) {
       <div className="absolute -inset-px bg-gradient-to-r from-accent-teal/10 to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-2xl" />
 
       <div className="relative z-10 space-y-3">
-        {/* Card Header (Favicon + Title + Star) */}
+        {/* Card Header (Favicon + Title + Checkbox + Star) */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             {favicon && !imageError ? (
@@ -79,16 +79,28 @@ export default function VaultCard({ entry, onSelect }) {
             </div>
           </div>
 
-          <button
-            onClick={handleFavoriteClick}
-            className={`p-1.5 rounded-lg border transition-all ${
-              entry.isFavorite
-                ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-dark'
-            }`}
-          >
-            <Star className="w-4 h-4 fill-current" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <input 
+              type="checkbox"
+              checked={isSelected}
+              onChange={(e) => {
+                e.stopPropagation();
+                onToggleSelect(entry._id);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-4 h-4 rounded border-border-dark text-accent-teal focus:ring-accent-teal bg-bg-dark cursor-pointer"
+            />
+            <button
+              onClick={handleFavoriteClick}
+              className={`p-1.5 rounded-lg border transition-all ${
+                entry.isFavorite
+                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                  : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-dark'
+              }`}
+            >
+              <Star className="w-4 h-4 fill-current" />
+            </button>
+          </div>
         </div>
 
         {/* Username Preview */}
