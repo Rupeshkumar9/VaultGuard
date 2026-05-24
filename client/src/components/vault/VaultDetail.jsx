@@ -10,13 +10,14 @@ import {
   Edit3, 
   Calendar,
   Shield,
-  Star
+  Star,
+  RefreshCw
 } from 'lucide-react';
 import { getFaviconUrl, getDomain, formatDate } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 
-export default function VaultDetail({ entry, onClose, onEdit, onDelete }) {
+export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestore }) {
   const { toggleFavorite, updateLastUsed } = useVault();
   const { copy: copyUsername, isCopied: isUsernameCopied } = useClipboard(10000);
   const { copy: copyPassword, isCopied: isPasswordCopied } = useClipboard(10000);
@@ -77,16 +78,18 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete }) {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => toggleFavorite(entry._id)}
-              className={`p-1.5 rounded-lg border transition-all ${
-                entry.isFavorite
-                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                  : 'border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-              }`}
-            >
-              <Star className="w-4 h-4 fill-current" />
-            </button>
+            {!entry.isInTrash && (
+              <button
+                onClick={() => toggleFavorite(entry._id)}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  entry.isFavorite
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                    : 'border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                }`}
+              >
+                <Star className="w-4 h-4 fill-current" />
+              </button>
+            )}
             <button 
               onClick={onClose}
               className="p-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
@@ -225,17 +228,32 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete }) {
             }`}
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>{isConfirmingDelete ? 'Are you sure?' : 'Delete'}</span>
+            <span>
+              {isConfirmingDelete
+                ? (entry.isInTrash ? 'Confirm Permanent Delete?' : 'Are you sure?')
+                : (entry.isInTrash ? 'Delete Permanently' : 'Delete')
+              }
+            </span>
           </button>
 
-          {/* Edit Button */}
-          <button
-            onClick={() => onEdit(entry)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-surface-hover hover:bg-border-dark border border-border-dark text-text-primary font-semibold text-xs transition-all active:scale-[0.98] cursor-pointer"
-          >
-            <Edit3 className="w-3.5 h-3.5 text-accent-teal" />
-            <span>Edit Entry</span>
-          </button>
+          {/* Edit or Restore Button */}
+          {entry.isInTrash ? (
+            <button
+              onClick={() => onRestore(entry._id)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 hover:border-emerald-500/35 text-emerald-400 font-semibold text-xs transition-all active:scale-[0.98] cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Restore Entry</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => onEdit(entry)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-surface-hover hover:bg-border-dark border border-border-dark text-text-primary font-semibold text-xs transition-all active:scale-[0.98] cursor-pointer"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-accent-teal" />
+              <span>Edit Entry</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

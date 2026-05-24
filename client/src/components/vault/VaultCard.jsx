@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Star, Copy, Check, ExternalLink, Shield, Globe } from 'lucide-react';
+import { Star, Copy, Check, ExternalLink, Shield, Globe, RefreshCw } from 'lucide-react';
 import { getFaviconUrl, getDomain, formatRelativeTime } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 
 export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect }) {
-  const { toggleFavorite, updateLastUsed } = useVault();
+  const { toggleFavorite, updateLastUsed, restoreEntry } = useVault();
   const { copy: copyUsername, isCopied: isUsernameCopied } = useClipboard(10000);
   const { copy: copyPassword, isCopied: isPasswordCopied } = useClipboard(10000);
   const [imageError, setImageError] = useState(false);
@@ -27,6 +27,15 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
     toggleFavorite(entry._id);
+  };
+
+  const handleRestore = async (e) => {
+    e.stopPropagation();
+    try {
+      await restoreEntry(entry._id);
+    } catch (err) {
+      alert('Failed to restore entry');
+    }
   };
 
   const handleLinkClick = (e) => {
@@ -90,16 +99,18 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
               onClick={(e) => e.stopPropagation()}
               className="w-4 h-4 rounded border-border-dark text-accent-teal focus:ring-accent-teal bg-bg-dark cursor-pointer"
             />
-            <button
-              onClick={handleFavoriteClick}
-              className={`p-1.5 rounded-lg border transition-all ${
-                entry.isFavorite
-                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                  : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-dark'
-              }`}
-            >
-              <Star className="w-4 h-4 fill-current" />
-            </button>
+            {!entry.isInTrash && (
+              <button
+                onClick={handleFavoriteClick}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  entry.isFavorite
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                    : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-dark'
+                }`}
+              >
+                <Star className="w-4 h-4 fill-current" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -119,37 +130,50 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
         </span>
 
         <div className="flex gap-1.5">
-          {entry.username && (
+          {entry.isInTrash ? (
             <button
-              onClick={handleCopyUsername}
-              title="Copy Username"
-              className={`p-2 rounded-lg border transition-all active:scale-95 flex items-center justify-center cursor-pointer ${
-                isUsernameCopied 
-                  ? 'bg-accent-glow border-accent-teal/30 text-accent-teal'
-                  : 'bg-bg-dark border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-              }`}
+              onClick={handleRestore}
+              title="Restore Entry"
+              className="p-1.5 px-2.5 rounded-lg border border-border-dark bg-bg-dark text-accent-teal hover:bg-accent-teal/10 hover:border-accent-teal/30 transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
             >
-              {isUsernameCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold">Restore</span>
             </button>
-          )}
+          ) : (
+            <>
+              {entry.username && (
+                <button
+                  onClick={handleCopyUsername}
+                  title="Copy Username"
+                  className={`p-2 rounded-lg border transition-all active:scale-95 flex items-center justify-center cursor-pointer ${
+                    isUsernameCopied 
+                      ? 'bg-accent-glow border-accent-teal/30 text-accent-teal'
+                      : 'bg-bg-dark border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                  }`}
+                >
+                  {isUsernameCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              )}
 
-          <button
-            onClick={handleCopyPassword}
-            title="Copy Password"
-            className={`p-2 rounded-lg border transition-all active:scale-95 flex items-center justify-center cursor-pointer ${
-              isPasswordCopied 
-                ? 'bg-accent-glow border-accent-teal/30 text-accent-teal font-medium'
-                : 'bg-bg-dark border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-            }`}
-          >
-            {isPasswordCopied ? (
-              <span className="text-[10px] font-bold px-0.5 flex items-center gap-1">
-                <Check className="w-3 h-3" />
-              </span>
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
+              <button
+                onClick={handleCopyPassword}
+                title="Copy Password"
+                className={`p-2 rounded-lg border transition-all active:scale-95 flex items-center justify-center cursor-pointer ${
+                  isPasswordCopied 
+                    ? 'bg-accent-glow border-accent-teal/30 text-accent-teal font-medium'
+                    : 'bg-bg-dark border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                }`}
+              >
+                {isPasswordCopied ? (
+                  <span className="text-[10px] font-bold px-0.5 flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5" />
+                  </span>
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -42,6 +42,11 @@ const vaultEntrySchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isInTrash: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
 
     // ──── Encrypted Data (encrypted on client, opaque to server) ────
     encryptedData: {

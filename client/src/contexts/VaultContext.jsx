@@ -57,7 +57,7 @@ export const VaultProvider = ({ children }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.get('/vault');
+      const response = await api.get('/vault?trash=all');
       if (response.success && response.data) {
         const decryptedEntries = await Promise.all(
           response.data.map(entry => decryptEntry(entry))
@@ -182,13 +182,17 @@ export const VaultProvider = ({ children }) => {
     }
   };
 
-  // Delete an entry
+  // Delete an entry (soft delete to Trash)
   const deleteEntry = async (id) => {
     setIsLoading(true);
     try {
       const response = await api.delete(`/vault/${id}`);
       if (response.success) {
-        setEntries(prev => prev.filter(entry => entry._id !== id));
+        setEntries(prev =>
+          prev.map(entry =>
+            entry._id === id ? { ...entry, isInTrash: true, isFavorite: false } : entry
+          )
+        );
       } else {
         throw new Error(response.message || 'Failed to delete vault entry');
       }
@@ -200,13 +204,17 @@ export const VaultProvider = ({ children }) => {
     }
   };
 
-  // Delete multiple entries (bulk delete)
+  // Delete multiple entries (soft delete to Trash)
   const deleteEntries = async (ids) => {
     setIsLoading(true);
     try {
       const response = await api.post('/vault/delete-bulk', { ids });
       if (response.success) {
-        setEntries(prev => prev.filter(entry => !ids.includes(entry._id)));
+        setEntries(prev =>
+          prev.map(entry =>
+            ids.includes(entry._id) ? { ...entry, isInTrash: true, isFavorite: false } : entry
+          )
+        );
       } else {
         throw new Error(response.message || 'Failed to delete vault entries');
       }
@@ -240,6 +248,86 @@ export const VaultProvider = ({ children }) => {
     }
   };
 
+  // Delete an entry permanently
+  const deleteEntryPermanent = async (id) => {
+    setIsLoading(true);
+    try {
+      const response = await api.delete(`/vault/${id}/permanent`);
+      if (response.success) {
+        setEntries(prev => prev.filter(entry => entry._id !== id));
+      } else {
+        throw new Error(response.message || 'Failed to permanently delete entry');
+      }
+    } catch (err) {
+      console.error('Error permanently deleting entry:', err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Delete multiple entries permanently (bulk hard delete)
+  const deleteEntriesPermanent = async (ids) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post('/vault/delete-bulk-permanent', { ids });
+      if (response.success) {
+        setEntries(prev => prev.filter(entry => !ids.includes(entry._id)));
+      } else {
+        throw new Error(response.message || 'Failed to permanently delete entries');
+      }
+    } catch (err) {
+      console.error('Error permanently deleting entries:', err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Restore an entry from Trash
+  const restoreEntry = async (id) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post(`/vault/${id}/restore`);
+      if (response.success) {
+        setEntries(prev =>
+          prev.map(entry =>
+            entry._id === id ? { ...entry, isInTrash: false } : entry
+          )
+        );
+      } else {
+        throw new Error(response.message || 'Failed to restore vault entry');
+      }
+    } catch (err) {
+      console.error('Error restoring entry:', err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Restore multiple entries from Trash (bulk restore)
+  const restoreEntries = async (ids) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post('/vault/restore-bulk', { ids });
+      if (response.success) {
+        setEntries(prev =>
+          prev.map(entry =>
+            ids.includes(entry._id) ? { ...entry, isInTrash: false } : entry
+          )
+        );
+      } else {
+        throw new Error(response.message || 'Failed to restore vault entries');
+      }
+    } catch (err) {
+      console.error('Error restoring entries:', err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Clear in-memory entries on lock
   const clearEntries = useCallback(() => {
     setEntries([]);
@@ -259,6 +347,10 @@ export const VaultProvider = ({ children }) => {
         deleteEntry,
         deleteEntries,
         updateEntries,
+        deleteEntryPermanent,
+        deleteEntriesPermanent,
+        restoreEntry,
+        restoreEntries,
         clearEntries,
       }}
     >

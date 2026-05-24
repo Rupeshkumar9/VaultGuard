@@ -14,10 +14,18 @@ router.use(protect);
 // ──────────────────────────────────────────────
 router.get('/', async (req, res, next) => {
   try {
-    const { category, favorite, search } = req.query;
+    const { category, favorite, search, trash } = req.query;
 
     // Build query filter
     const filter = { user: req.user._id };
+
+    if (trash === 'true') {
+      filter.isInTrash = true;
+    } else if (trash === 'all') {
+      // Include both trash and non-trash items
+    } else {
+      filter.isInTrash = { $ne: true };
+    }
 
     if (category) {
       filter.category = category;
@@ -254,7 +262,7 @@ router.post('/update-bulk', async (req, res, next) => {
 
 // ──────────────────────────────────────────────
 // POST /api/vault/delete-bulk
-// Delete multiple vault entries in bulk
+// Move multiple vault entries to Trash (soft delete)
 // ──────────────────────────────────────────────
 router.post('/delete-bulk', async (req, res, next) => {
   try {
@@ -266,6 +274,35 @@ router.post('/delete-bulk', async (req, res, next) => {
       });
     }
 
+    const result = await VaultEntry.updateMany(
+      { _id: { $in: ids }, user: req.user._id },
+      { $set: { isInTrash: true, isFavorite: false } }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} entries moved to Trash successfully.`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────────
+// POST /api/vault/delete-bulk-permanent
+// Delete multiple vault entries permanently (hard delete)
+// ──────────────────────────────────────────────
+router.post('/delete-bulk-permanent', async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({
+        success: false,
+        message: 'An array of IDs is required for permanent deletion.',
+      });
+    }
+
     const result = await VaultEntry.deleteMany({
       _id: { $in: ids },
       user: req.user._id,
@@ -273,7 +310,7 @@ router.post('/delete-bulk', async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: `${result.deletedCount} entries deleted successfully.`,
+      message: `${result.deletedCount} entries permanently deleted.`,
       deletedCount: result.deletedCount,
     });
   } catch (error) {
@@ -282,10 +319,67 @@ router.post('/delete-bulk', async (req, res, next) => {
 });
 
 // ──────────────────────────────────────────────
+// POST /api/vault/restore-bulk
+// Restore multiple vault entries from Trash
+// ──────────────────────────────────────────────
+router.post('/restore-bulk', async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({
+        success: false,
+        message: 'An array of IDs is required for bulk restoration.',
+      });
+    }
+
+    const result = await VaultEntry.updateMany(
+      { _id: { $in: ids }, user: req.user._id },
+      { $set: { isInTrash: false } }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} entries restored successfully.`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────────
 // DELETE /api/vault/:id
-// Delete a vault entry
+// Move a vault entry to Trash (soft delete)
 // ──────────────────────────────────────────────
 router.delete('/:id', async (req, res, next) => {
+  try {
+    const entry = await VaultEntry.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id },
+      { $set: { isInTrash: true, isFavorite: false } },
+      { new: true }
+    );
+
+    if (!entry) {
+      return res.status(404).json({
+        success: false,
+        message: 'Entry not found.',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Entry moved to Trash successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────────
+// DELETE /api/vault/:id/permanent
+// Delete a vault entry permanently
+// ──────────────────────────────────────────────
+router.delete('/:id/permanent', async (req, res, next) => {
   try {
     const entry = await VaultEntry.findOneAndDelete({
       _id: req.params.id,
@@ -301,7 +395,35 @@ router.delete('/:id', async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Entry deleted successfully.',
+      message: 'Entry permanently deleted successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────────
+// POST /api/vault/:id/restore
+// Restore a vault entry from Trash
+// ──────────────────────────────────────────────
+router.post('/:id/restore', async (req, res, next) => {
+  try {
+    const entry = await VaultEntry.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id },
+      { $set: { isInTrash: false } },
+      { new: true }
+    );
+
+    if (!entry) {
+      return res.status(404).json({
+        success: false,
+        message: 'Entry not found.',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Entry restored successfully.',
     });
   } catch (error) {
     next(error);

@@ -17,7 +17,8 @@ import {
   Tv,
   Terminal,
   Gamepad2,
-  MoreHorizontal
+  MoreHorizontal,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCrypto } from '../../contexts/CryptoContext';
@@ -41,9 +42,11 @@ export const CATEGORY_ICONS = {
 
 export default function Sidebar({ 
   activeCategory, 
-  setActiveCategory, 
   showFavoritesOnly, 
-  setShowFavoritesOnly,
+  showTrashOnly,
+  onSelectCategory,
+  onSelectFavorites,
+  onSelectTrash,
   onOpenAddEntry,
   onOpenGenerator,
   onOpenSettings,
@@ -53,11 +56,12 @@ export default function Sidebar({
   const { lock } = useCrypto();
   const { entries } = useVault();
 
-  // Get item count helper
+  // Get item count helper (excluding items currently in the trash for active views)
   const getCount = (category) => {
-    if (category === 'All') return entries.length;
-    if (category === 'Favorites') return entries.filter(e => e.isFavorite).length;
-    return entries.filter(e => e.category === category).length;
+    if (category === 'All') return entries.filter(e => !e.isInTrash).length;
+    if (category === 'Favorites') return entries.filter(e => e.isFavorite && !e.isInTrash).length;
+    if (category === 'Trash') return entries.filter(e => e.isInTrash).length;
+    return entries.filter(e => e.category === category && !e.isInTrash).length;
   };
 
   const categories = [
@@ -74,13 +78,15 @@ export default function Sidebar({
   ];
 
   const handleCategoryClick = (category) => {
-    setShowFavoritesOnly(false);
-    setActiveCategory(category);
+    onSelectCategory(category);
   };
 
   const handleFavoritesClick = () => {
-    setShowFavoritesOnly(true);
-    setActiveCategory('All');
+    onSelectFavorites();
+  };
+
+  const handleTrashClick = () => {
+    onSelectTrash();
   };
 
   return (
@@ -106,7 +112,7 @@ export default function Sidebar({
           <button
             onClick={() => handleCategoryClick('All')}
             className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeCategory === 'All' && !showFavoritesOnly
+              activeCategory === 'All' && !showFavoritesOnly && !showTrashOnly
                 ? 'bg-accent-glow text-accent-teal border-l-2 border-accent-teal'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
             }`}
@@ -134,6 +140,23 @@ export default function Sidebar({
             </div>
             <span className="text-xs bg-bg-dark border border-border-dark px-2 py-0.5 rounded-full text-text-secondary font-mono">
               {getCount('Favorites')}
+            </span>
+          </button>
+
+          <button
+            onClick={handleTrashClick}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+              showTrashOnly
+                ? 'bg-accent-glow text-accent-teal border-l-2 border-accent-teal'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Trash2 className="w-4.5 h-4.5" />
+              <span>Trash</span>
+            </div>
+            <span className="text-xs bg-bg-dark border border-border-dark px-2 py-0.5 rounded-full text-text-secondary font-mono">
+              {getCount('Trash')}
             </span>
           </button>
         </div>

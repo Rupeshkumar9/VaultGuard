@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, X, ArrowUpDown, Calendar, Folder, Edit3 } from 'lucide-react';
+import { Shield, Plus, Trash2, X, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw } from 'lucide-react';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
 import VaultList from '../components/vault/VaultList';
@@ -12,7 +12,17 @@ import { useVault } from '../contexts/VaultContext';
 import { useAutoLock } from '../hooks/useAutoLock';
 
 export default function VaultPage() {
-  const { entries, isLoading, fetchEntries, deleteEntry, deleteEntries } = useVault();
+  const { 
+    entries, 
+    isLoading, 
+    fetchEntries, 
+    deleteEntry, 
+    deleteEntries,
+    restoreEntry,
+    restoreEntries,
+    deleteEntryPermanent,
+    deleteEntriesPermanent
+  } = useVault();
   
   // Activate auto-lock functionality
   useAutoLock();
@@ -21,6 +31,7 @@ export default function VaultPage() {
   const [currentView, setCurrentView] = useState('vault'); // 'vault' | 'generator' | 'settings'
   const [activeCategory, setActiveCategory] = useState('All');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showTrashOnly, setShowTrashOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Bulk actions & advanced filtering states
@@ -29,6 +40,7 @@ export default function VaultPage() {
   const [dateFilter, setDateFilter] = useState('all'); // 'all' | '30days' | '90days' | 'older6months' | 'neverUsed'
 
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isBulkRestoring, setIsBulkRestoring] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isBulkEditing, setIsBulkEditing] = useState(false);
 
@@ -49,21 +61,28 @@ export default function VaultPage() {
   useEffect(() => {
     setSelectedIds([]);
     setIsConfirmingDelete(false);
-  }, [activeCategory, showFavoritesOnly, searchQuery, dateFilter]);
+  }, [activeCategory, showFavoritesOnly, searchQuery, dateFilter, showTrashOnly]);
 
-  // Filter entries based on search, category, favorite, date, and site status
+  // Filter entries based on search, category, favorite, date, and trash status
   const filteredEntries = entries.filter((entry) => {
-    // 1. Favorite filter
-    if (showFavoritesOnly && !entry.isFavorite) {
-      return false;
+    // 1. Trash filter
+    if (showTrashOnly) {
+      if (!entry.isInTrash) return false;
+    } else {
+      if (entry.isInTrash) return false;
+
+      // 2. Favorite filter
+      if (showFavoritesOnly && !entry.isFavorite) {
+        return false;
+      }
+
+      // 3. Category filter
+      if (activeCategory !== 'All' && entry.category !== activeCategory) {
+        return false;
+      }
     }
 
-    // 2. Category filter
-    if (activeCategory !== 'All' && entry.category !== activeCategory) {
-      return false;
-    }
-
-    // 3. Search query filter
+    // 4. Search query filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       const titleMatch = entry.title?.toLowerCase().includes(q);
@@ -76,7 +95,7 @@ export default function VaultPage() {
       }
     }
 
-    // 4. Date filter
+    // 5. Date filter
     if (dateFilter !== 'all') {
       const createdDate = new Date(entry.createdAt);
       const now = new Date();
@@ -141,10 +160,24 @@ export default function VaultPage() {
 
   const handleDeleteEntry = async (id) => {
     try {
-      await deleteEntry(id);
+      const entryToDelete = entries.find(e => e._id === id);
+      if (entryToDelete?.isInTrash) {
+        await deleteEntryPermanent(id);
+      } else {
+        await deleteEntry(id);
+      }
       setSelectedEntry(null);
     } catch (err) {
       alert('Failed to delete entry');
+    }
+  };
+
+  const handleRestoreEntry = async (id) => {
+    try {
+      await restoreEntry(id);
+      setSelectedEntry(null);
+    } catch (err) {
+      alert('Failed to restore entry');
     }
   };
 
@@ -188,14 +221,67 @@ export default function VaultPage() {
     }
   };
 
+  const handleRestoreSelected = async () => {
+    setIsBulkRestoring(true);
+    try {
+      await restoreEntries(selectedIds);
+      setSelectedIds([]);
+    } catch (err) {
+      alert('Failed to restore selected entries');
+    } finally {
+      setIsBulkRestoring(false);
+    }
+  };
+
+  const handleDeleteSelectedPermanent = async () => {
+    if (!isConfirmingDelete) {
+      setIsConfirmingDelete(true);
+      return;
+    }
+
+    setIsBulkDeleting(true);
+    try {
+      await deleteEntriesPermanent(selectedIds);
+      setSelectedIds([]);
+      setIsConfirmingDelete(false);
+    } catch (err) {
+      alert('Failed to permanently delete selected entries');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   const handleSidebarViewChange = (view) => {
     setCurrentView(view);
+    setIsMobileSidebarOpen(false);
+  };
+
+  const handleSelectCategory = (cat) => {
+    setActiveCategory(cat);
+    setShowFavoritesOnly(false);
+    setShowTrashOnly(false);
+    setCurrentView('vault');
+    setIsMobileSidebarOpen(false);
+  };
+
+  const handleSelectFavorites = () => {
+    setShowFavoritesOnly(true);
+    setShowTrashOnly(false);
+    setCurrentView('vault');
+    setIsMobileSidebarOpen(false);
+  };
+
+  const handleSelectTrash = () => {
+    setShowTrashOnly(true);
+    setShowFavoritesOnly(false);
+    setCurrentView('vault');
     setIsMobileSidebarOpen(false);
   };
 
   const handleLogoClick = () => {
     setActiveCategory('All');
     setShowFavoritesOnly(false);
+    setShowTrashOnly(false);
     setSearchQuery('');
     setCurrentView('vault');
   };
@@ -207,15 +293,11 @@ export default function VaultPage() {
       <div className="hidden md:flex">
         <Sidebar 
           activeCategory={activeCategory}
-          setActiveCategory={(cat) => {
-            setActiveCategory(cat);
-            setCurrentView('vault');
-          }}
+          onSelectCategory={handleSelectCategory}
           showFavoritesOnly={showFavoritesOnly}
-          setShowFavoritesOnly={(fav) => {
-            setShowFavoritesOnly(fav);
-            setCurrentView('vault');
-          }}
+          onSelectFavorites={handleSelectFavorites}
+          showTrashOnly={showTrashOnly}
+          onSelectTrash={handleSelectTrash}
           onOpenAddEntry={handleOpenAddForm}
           onOpenGenerator={() => handleSidebarViewChange('generator')}
           onOpenSettings={() => handleSidebarViewChange('settings')}
@@ -235,17 +317,11 @@ export default function VaultPage() {
           <div className="relative flex-1 flex flex-col max-w-xs w-full bg-surface-dark border-r border-border-dark animate-slideInLeft">
             <Sidebar 
               activeCategory={activeCategory}
-              setActiveCategory={(cat) => {
-                setActiveCategory(cat);
-                setCurrentView('vault');
-                setIsMobileSidebarOpen(false);
-              }}
+              onSelectCategory={handleSelectCategory}
               showFavoritesOnly={showFavoritesOnly}
-              setShowFavoritesOnly={(fav) => {
-                setShowFavoritesOnly(fav);
-                setCurrentView('vault');
-                setIsMobileSidebarOpen(false);
-              }}
+              onSelectFavorites={handleSelectFavorites}
+              showTrashOnly={showTrashOnly}
+              onSelectTrash={handleSelectTrash}
               onOpenAddEntry={() => {
                 handleOpenAddForm();
                 setIsMobileSidebarOpen(false);
@@ -279,12 +355,14 @@ export default function VaultPage() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border-dark/30">
                 <div className="text-left">
                   <h2 className="text-xl font-extrabold text-text-primary tracking-tight">
-                    {showFavoritesOnly ? 'Favorites' : `${activeCategory} Credentials`}
+                    {showTrashOnly ? 'Trash' : showFavoritesOnly ? 'Favorites' : `${activeCategory} Credentials`}
                   </h2>
                   <p className="text-xs text-text-secondary mt-0.5">
-                    {showFavoritesOnly 
-                      ? 'Your starred items, synced and stored with client-side zero-knowledge encryption.'
-                      : `Manage your secure credentials stored under ${activeCategory.toLowerCase()} category.`
+                    {showTrashOnly
+                      ? 'Credentials currently in the trash. Items can be restored or permanently deleted.'
+                      : showFavoritesOnly 
+                        ? 'Your starred items, synced and stored with client-side zero-knowledge encryption.'
+                        : `Manage your secure credentials stored under ${activeCategory.toLowerCase()} category.`
                     }
                   </p>
                 </div>
@@ -350,38 +428,40 @@ export default function VaultPage() {
                 {/* Divider on larger screens */}
                 <div className="hidden md:block h-4 w-px bg-border-dark/60 mx-1" />
 
-                {/* Category filter dropdown */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase font-extrabold tracking-wider text-text-secondary/70 flex items-center gap-1">
-                    <Folder className="w-3.5 h-3.5 text-accent-teal" /> Category Filter
-                  </span>
-                  <select
-                    value={showFavoritesOnly ? 'Favorites' : activeCategory}
-                    onChange={(e) => {
-                      if (e.target.value === 'Favorites') {
-                        setShowFavoritesOnly(true);
-                        setActiveCategory('All');
-                      } else {
-                        setShowFavoritesOnly(false);
-                        setActiveCategory(e.target.value);
-                      }
-                    }}
-                    className="px-2.5 py-1 text-xs rounded-lg bg-bg-dark border border-border-dark text-text-primary focus:outline-none focus:border-accent-teal cursor-pointer"
-                  >
-                    <option value="All">All Categories</option>
-                    <option value="Favorites">Favorites</option>
-                    <option value="General">General</option>
-                    <option value="Social Media">Social Media</option>
-                    <option value="Email">Email</option>
-                    <option value="Banking">Banking</option>
-                    <option value="Shopping">Shopping</option>
-                    <option value="Work">Work</option>
-                    <option value="Entertainment">Entertainment</option>
-                    <option value="Development">Development</option>
-                    <option value="Gaming">Gaming</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
+                {/* Category Filter dropdown (only visible when not in Trash view) */}
+                {!showTrashOnly && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase font-extrabold tracking-wider text-text-secondary/70 flex items-center gap-1">
+                      <Folder className="w-3.5 h-3.5 text-accent-teal" /> Category Filter
+                    </span>
+                    <select
+                      value={showFavoritesOnly ? 'Favorites' : activeCategory}
+                      onChange={(e) => {
+                        if (e.target.value === 'Favorites') {
+                          setShowFavoritesOnly(true);
+                          setActiveCategory('All');
+                        } else {
+                          setShowFavoritesOnly(false);
+                          setActiveCategory(e.target.value);
+                        }
+                      }}
+                      className="px-2.5 py-1 text-xs rounded-lg bg-bg-dark border border-border-dark text-text-primary focus:outline-none focus:border-accent-teal cursor-pointer"
+                    >
+                      <option value="All">All Categories</option>
+                      <option value="Favorites">Favorites</option>
+                      <option value="General">General</option>
+                      <option value="Social Media">Social Media</option>
+                      <option value="Email">Email</option>
+                      <option value="Banking">Banking</option>
+                      <option value="Shopping">Shopping</option>
+                      <option value="Work">Work</option>
+                      <option value="Entertainment">Entertainment</option>
+                      <option value="Development">Development</option>
+                      <option value="Gaming">Gaming</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Grid / List of entries */}
@@ -427,33 +507,68 @@ export default function VaultPage() {
           >
             Cancel
           </button>
-          <button
-            onClick={() => setIsBulkEditing(true)}
-            className="px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-border-dark bg-surface-dark hover:bg-surface-hover hover:border-accent-teal/30 text-text-primary"
-          >
-            <Edit3 className="w-3.5 h-3.5 text-accent-teal" />
-            <span>Edit</span>
-          </button>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={isBulkDeleting}
-            onMouseLeave={() => setIsConfirmingDelete(false)}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-              isConfirmingDelete 
-                ? 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700 font-semibold' 
-                : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:border-rose-500/35'
-            }`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>
-              {isBulkDeleting 
-                ? 'Deleting...' 
-                : isConfirmingDelete 
-                  ? 'Confirm Delete?' 
-                  : 'Delete Selected'
-              }
-            </span>
-          </button>
+          {showTrashOnly ? (
+            <>
+              <button
+                onClick={handleRestoreSelected}
+                disabled={isBulkRestoring}
+                className="px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-border-dark bg-surface-dark hover:bg-surface-hover hover:border-accent-teal/30 text-text-primary"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-accent-teal" />
+                <span>Restore</span>
+              </button>
+              <button
+                onClick={handleDeleteSelectedPermanent}
+                disabled={isBulkDeleting}
+                onMouseLeave={() => setIsConfirmingDelete(false)}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                  isConfirmingDelete 
+                    ? 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700 font-semibold' 
+                    : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:border-rose-500/35'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>
+                  {isBulkDeleting 
+                    ? 'Deleting...' 
+                    : isConfirmingDelete 
+                      ? 'Confirm Permanent Delete?' 
+                      : 'Delete Permanently'
+                  }
+                </span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setIsBulkEditing(true)}
+                className="px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-border-dark bg-surface-dark hover:bg-surface-hover hover:border-accent-teal/30 text-text-primary"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-accent-teal" />
+                <span>Edit</span>
+              </button>
+              <button
+                onClick={handleDeleteSelected}
+                disabled={isBulkDeleting}
+                onMouseLeave={() => setIsConfirmingDelete(false)}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                  isConfirmingDelete 
+                    ? 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700 font-semibold' 
+                    : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:border-rose-500/35'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>
+                  {isBulkDeleting 
+                    ? 'Deleting...' 
+                    : isConfirmingDelete 
+                      ? 'Confirm Delete?' 
+                      : 'Delete Selected'
+                  }
+                </span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -464,6 +579,7 @@ export default function VaultPage() {
           onClose={handleCloseDetail}
           onEdit={handleEditEntry}
           onDelete={handleDeleteEntry}
+          onRestore={handleRestoreEntry}
         />
       )}
 
