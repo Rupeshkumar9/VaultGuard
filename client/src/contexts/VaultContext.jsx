@@ -96,9 +96,8 @@ export const VaultProvider = ({ children }) => {
       });
 
       if (response.success && response.data) {
-        const newDecryptedEntry = await decryptEntry(response.data);
-        setEntries(prev => [newDecryptedEntry, ...prev]);
-        return newDecryptedEntry;
+        await fetchEntries(); // Force refresh list from database and decrypt
+        return response.data;
       } else {
         throw new Error(response.message || 'Failed to create vault entry');
       }
@@ -133,9 +132,8 @@ export const VaultProvider = ({ children }) => {
       });
 
       if (response.success && response.data) {
-        const updatedDecryptedEntry = await decryptEntry(response.data);
-        setEntries(prev => prev.map(entry => entry._id === id ? updatedDecryptedEntry : entry));
-        return updatedDecryptedEntry;
+        await fetchEntries(); // Force refresh list from database and decrypt
+        return response.data;
       } else {
         throw new Error(response.message || 'Failed to update vault entry');
       }

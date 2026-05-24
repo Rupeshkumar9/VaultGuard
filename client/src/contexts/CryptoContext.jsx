@@ -16,16 +16,27 @@ export const CryptoProvider = ({ children }) => {
     }
   }, [isAuthenticated]);
 
+  // Restore unlock state from sessionStorage on page refresh
+  useEffect(() => {
+    const savedPassword = sessionStorage.getItem('vaultguard_session_master_password');
+    if (savedPassword && isAuthenticated) {
+      masterPasswordRef.current = savedPassword;
+      setIsUnlocked(true);
+    }
+  }, [isAuthenticated]);
+
   const unlock = (password) => {
     if (!password) return false;
     masterPasswordRef.current = password;
     setIsUnlocked(true);
+    sessionStorage.setItem('vaultguard_session_master_password', password);
     return true;
   };
 
   const lock = () => {
     masterPasswordRef.current = '';
     setIsUnlocked(false);
+    sessionStorage.removeItem('vaultguard_session_master_password');
   };
 
   const getMasterPassword = () => {

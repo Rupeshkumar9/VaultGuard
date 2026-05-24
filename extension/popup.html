@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VaultGuard</title>
+  <!-- Modern clean typography from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app" class="flex-col">
+    
+    <!-- ──── SCREEN A: LOCKED / LOGIN VIEW ──── -->
+    <div id="screen-locked" class="screen flex-col active">
+      <div class="lock-brand flex-col">
+        <div class="logo-shield">
+          <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="M12 8v4"></path>
+            <path d="M12 16h.01"></path>
+          </svg>
+        </div>
+        <h1>VaultGuard</h1>
+        <p class="subtitle">Zero-Knowledge Secure Crypt</p>
+      </div>
+
+      <form id="lock-form" class="flex-col">
+        <div class="input-group">
+          <label for="lock-email">Email Address</label>
+          <input type="email" id="lock-email" placeholder="name@domain.com" required>
+        </div>
+
+        <div class="input-group">
+          <label for="lock-password">Master Password</label>
+          <input type="password" id="lock-password" placeholder="••••••••••••••••" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="unlock-btn">
+          <span>Unlock Vault</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </button>
+      </form>
+
+      <div class="lock-footer flex-col" style="gap: 8px;">
+        <button id="btn-visit-register" class="link-btn" style="font-weight: 500; color: var(--primary-solid);">Don't have an account? Sign Up on Web</button>
+        <button id="toggle-server-config" class="link-btn">Configure Server Connection</button>
+        
+        <div id="server-config-panel" class="collapsible flex-col">
+          <div class="input-group">
+            <label for="server-url">Vault Server URL</label>
+            <input type="url" id="server-url" placeholder="http://localhost:5000">
+          </div>
+          <button id="save-server-btn" class="btn btn-secondary btn-sm">Save Configuration</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ──── SCREEN B: UNLOCKED DASHBOARD ──── -->
+    <div id="screen-unlocked" class="screen flex-col">
+      <!-- Top header bar -->
+      <header class="main-header flex-row">
+        <div class="header-logo flex-row">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+          <span class="logo-text">VaultGuard</span>
+        </div>
+        <div class="header-actions flex-row">
+          <button id="add-entry-btn" class="icon-btn tooltip" data-tooltip="Add Credential">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <button id="lock-vault-btn" class="icon-btn tooltip" data-tooltip="Lock Vault">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Active Tab suggestion banner -->
+      <div id="matching-banner" class="matching-banner flex-row hidden">
+        <div class="banner-info flex-row">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <span id="matching-website-text">Matching logins for this site:</span>
+        </div>
+        <button id="matching-filter-btn" class="badge">View (1)</button>
+      </div>
+
+      <!-- Search bar & Categories -->
+      <div class="search-section">
+        <div class="search-container">
+          <svg class="search-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="vault-search" placeholder="Search accounts, domains...">
+          <button id="search-clear-btn" class="search-clear hidden">&times;</button>
+        </div>
+        
+        <!-- Quick categories filter pills -->
+        <div class="categories-scroll flex-row">
+          <button class="pill active" data-category="All">All</button>
+          <button class="pill" data-category="Logins">Logins</button>
+          <button class="pill" data-category="Cards">Cards</button>
+          <button class="pill" data-category="Notes">Notes</button>
+        </div>
+      </div>
+
+      <!-- List viewport -->
+      <div class="vault-list-container scrollbar">
+        <div id="vault-entries-list" class="flex-col">
+          <!-- Populated dynamically via JS -->
+          <div class="loader-container flex-col">
+            <div class="spinner"></div>
+            <p>Syncing secure vault...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail Overlay Modal -->
+      <div id="entry-detail-modal" class="modal-overlay flex-col hidden">
+        <div class="modal-container flex-col animate-slideUp">
+          <div class="modal-header flex-row">
+            <h3 id="detail-title">Item Title</h3>
+            <input type="text" id="detail-title-input" class="hidden" style="width: 70%; font-size: 15px; font-weight: bold; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; color: white; font-family: var(--font-main);">
+            <div class="flex-row" style="gap: 8px; align-items: center;">
+              <button id="edit-detail-btn" class="icon-btn-sm" title="Edit Entry">
+                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              </button>
+              <button id="close-detail-btn" class="close-btn">&times;</button>
+            </div>
+          </div>
+          <div class="modal-body scrollbar flex-col">
+            <div class="detail-row flex-row">
+              <div class="detail-label">Category</div>
+              <div class="detail-value badge" id="detail-category">General</div>
+              <select id="detail-category-select" class="hidden" style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 6px; color: white; padding: 2px 6px; font-size: 11px; font-family: var(--font-main);">
+                <option value="General">General</option>
+                <option value="Social Media">Social Media</option>
+                <option value="Email">Email</option>
+                <option value="Banking">Banking</option>
+                <option value="Shopping">Shopping</option>
+                <option value="Work">Work</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="Development">Development</option>
+                <option value="Gaming">Gaming</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="detail-row flex-row">
+              <div class="detail-label">Website</div>
+              <div class="detail-value flex-row" style="width: 70%; justify-content: flex-end;">
+                <span id="detail-website" class="truncate">domain.com</span>
+                <input type="text" id="detail-website-input" class="hidden" style="width: 100%; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 6px; color: white; padding: 2px 6px; font-size: 12px; text-align: right; font-family: var(--font-main);">
+                <button class="btn-copy-field icon-btn-sm" data-field="website" title="Copy URL">
+                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+              </div>
+            </div>
+            <div class="detail-row flex-row">
+              <div class="detail-label">Username</div>
+              <div class="detail-value flex-row" style="width: 70%; justify-content: flex-end;">
+                <span id="detail-username" class="truncate">username</span>
+                <input type="text" id="detail-username-input" class="hidden" style="width: 100%; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 6px; color: white; padding: 2px 6px; font-size: 12px; text-align: right; font-family: var(--font-main);">
+                <button class="btn-copy-field icon-btn-sm" data-field="username" title="Copy Username">
+                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+              </div>
+            </div>
+            <div class="detail-row flex-row">
+              <div class="detail-label">Password</div>
+              <div class="detail-value flex-row">
+                <input type="password" id="detail-password-input" value="••••••••" readonly class="secret-input" style="transition: border 0.2s ease, padding 0.2s ease;">
+                <button id="toggle-detail-pass-btn" class="icon-btn-sm" title="Toggle visibility">
+                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                </button>
+                <button class="btn-copy-field icon-btn-sm" data-field="password" title="Copy Password">
+                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+              </div>
+            </div>
+            <div class="detail-row flex-col border-none">
+              <div class="detail-label">Notes</div>
+              <div class="detail-value notes-block text-left" id="detail-notes">No notes.</div>
+              <textarea id="detail-notes-input" class="notes-block hidden" style="width: 100%; box-sizing: border-box; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; color: white; padding: 8px; font-family: var(--font-main);"></textarea>
+            </div>
+            
+            <!-- Save / Cancel Edit Actions -->
+            <div id="detail-edit-actions" class="flex-row hidden" style="gap: 10px; margin-top: 8px; justify-content: flex-end; border-top: 1px solid var(--border-color); padding-top: 10px; width: 100%;">
+              <button id="cancel-edit-btn" class="btn btn-secondary btn-sm">Cancel</button>
+              <button id="save-edit-btn" class="btn btn-primary btn-sm" style="padding: 6px 16px;">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Entry Modal -->
+      <div id="add-entry-modal" class="modal-overlay flex-col hidden">
+        <div class="modal-container flex-col animate-slideUp">
+          <div class="modal-header flex-row">
+            <h3>Add New Credential</h3>
+            <button id="close-add-modal-btn" class="close-btn">&times;</button>
+          </div>
+          <form id="add-entry-form" class="modal-body scrollbar flex-col" style="gap: 12px; max-height: 380px;">
+            <div class="input-group" style="margin-bottom: 8px;">
+              <label for="add-title">Title</label>
+              <input type="text" id="add-title" placeholder="My Account" required style="padding: 8px 12px; border-radius: 8px;">
+            </div>
+            <div class="input-group" style="margin-bottom: 8px;">
+              <label for="add-category">Category</label>
+              <select id="add-category" style="background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; color: white; padding: 8px 12px; font-size: 13px; font-family: var(--font-main); cursor: pointer; width: 100%;">
+                <option value="General">General</option>
+                <option value="Social Media">Social Media</option>
+                <option value="Email">Email</option>
+                <option value="Banking">Banking</option>
+                <option value="Shopping">Shopping</option>
+                <option value="Work">Work</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="Development">Development</option>
+                <option value="Gaming">Gaming</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="input-group" style="margin-bottom: 8px;">
+              <label for="add-website">Website URL</label>
+              <input type="text" id="add-website" placeholder="https://domain.com" style="padding: 8px 12px; border-radius: 8px;">
+            </div>
+            <div class="input-group" style="margin-bottom: 8px;">
+              <label for="add-username">Username</label>
+              <input type="text" id="add-username" placeholder="username or email" style="padding: 8px 12px; border-radius: 8px;">
+            </div>
+            <div class="input-group" style="margin-bottom: 8px;">
+              <label for="add-password">Password</label>
+              <div class="flex-row" style="position: relative; width: 100%;">
+                <input type="password" id="add-password" placeholder="Password" required style="padding: 8px 12px; border-radius: 8px; padding-right: 40px; width: 100%;">
+                <button type="button" id="toggle-add-pass-btn" class="icon-btn-sm" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%);" title="Toggle visibility">
+                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                </button>
+              </div>
+            </div>
+            <div class="input-group" style="margin-bottom: 8px;">
+              <label for="add-notes">Notes</label>
+              <textarea id="add-notes" placeholder="Any extra information..." style="width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; color: white; padding: 8px 12px; font-family: var(--font-main); font-size: 13px; min-height: 60px; max-height: 90px; resize: vertical;"></textarea>
+            </div>
+            
+            <div class="flex-row" style="gap: 10px; margin-top: 4px; justify-content: flex-end; border-top: 1px solid var(--border-color); padding-top: 8px; width: 100%;">
+              <button type="button" id="cancel-add-btn" class="btn btn-secondary btn-sm">Cancel</button>
+              <button type="submit" id="save-add-btn" class="btn btn-primary btn-sm" style="padding: 6px 16px;">Save Credential</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Navigation tabs bar -->
+      <nav class="nav-bar flex-row">
+        <button class="nav-tab active" data-tab="vault">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          <span>Vault</span>
+        </button>
+        <button class="nav-tab" data-tab="generator">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="10" y1="15" x2="10" y2="9"></line>
+            <line x1="14" y1="15" x2="14" y2="9"></line>
+            <line x1="8" y1="12" x2="16" y2="12"></line>
+          </svg>
+          <span>Generator</span>
+        </button>
+        <button class="nav-tab" data-tab="settings">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- ──── TAB PANEL C: PASSWORD GENERATOR ──── -->
+    <div id="tab-generator" class="tab-panel flex-col hidden">
+      <div class="panel-header flex-row">
+        <h2>Pass Generator</h2>
+      </div>
+
+      <div class="generator-box flex-col">
+        <div class="result-container flex-row">
+          <input type="text" id="gen-password" readonly placeholder="Click Generate...">
+          <button id="btn-copy-gen" class="btn btn-secondary tooltip" data-tooltip="Copy password">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          </button>
+        </div>
+
+        <div class="strength-bar-wrapper">
+          <div id="gen-strength-indicator" class="strength-bar" style="width: 0%"></div>
+        </div>
+        <div class="strength-labels flex-row">
+          <span>Entropy Strength:</span>
+          <span id="gen-strength-text" class="strength-level-text">-</span>
+        </div>
+
+        <div class="options-container flex-col">
+          <div class="option-row flex-row">
+            <label for="gen-length">Length: <span id="gen-length-val">16</span></label>
+            <input type="range" id="gen-length" min="8" max="64" value="16">
+          </div>
+
+          <div class="option-grid">
+            <div class="checkbox-row flex-row">
+              <input type="checkbox" id="gen-upper" checked>
+              <label for="gen-upper">Uppercase (A-Z)</label>
+            </div>
+            <div class="checkbox-row flex-row">
+              <input type="checkbox" id="gen-lower" checked>
+              <label for="gen-lower">Lowercase (a-z)</label>
+            </div>
+            <div class="checkbox-row flex-row">
+              <input type="checkbox" id="gen-numbers" checked>
+              <label for="gen-numbers">Numbers (0-9)</label>
+            </div>
+            <div class="checkbox-row flex-row">
+              <input type="checkbox" id="gen-symbols" checked>
+              <label for="gen-symbols">Special Characters</label>
+            </div>
+          </div>
+        </div>
+
+        <button id="btn-generate" class="btn btn-primary">Generate Strong Pass</button>
+      </div>
+    </div>
+
+    <!-- ──── TAB PANEL D: SETTINGS ──── -->
+    <div id="tab-settings" class="tab-panel flex-col hidden">
+      <div class="panel-header flex-row">
+        <h2>Vault Settings</h2>
+      </div>
+
+      <div class="settings-box scrollbar flex-col">
+        <div class="user-profile flex-row">
+          <div class="profile-avatar flex-col">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          </div>
+          <div class="profile-info text-left">
+            <div class="profile-email font-semibold truncate" id="settings-user-email">user@domain.com</div>
+            <div class="profile-role">Owner - Vault Guard</div>
+          </div>
+        </div>
+
+        <div class="settings-group flex-col">
+          <h3>Connection settings</h3>
+          <div class="setting-item flex-col">
+            <label for="settings-server-url">Backend Server URL</label>
+            <input type="url" id="settings-server-url" placeholder="http://localhost:5000">
+          </div>
+        </div>
+
+        <div class="settings-group flex-col">
+          <h3>Security settings</h3>
+          <div class="setting-item flex-col">
+            <label for="settings-lock-timeout">Inactivity Auto-Lock</label>
+            <select id="settings-lock-timeout">
+              <option value="1">1 Minute</option>
+              <option value="5" selected>5 Minutes</option>
+              <option value="15">15 Minutes</option>
+              <option value="30">30 Minutes</option>
+              <option value="0">Never Lock</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-group flex-col">
+          <h3>Advanced Settings</h3>
+          <div class="setting-item flex-col" style="gap: 8px; align-items: flex-start;">
+            <label style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">Manage security keys, import/export vault data, or perform advanced setup on the Web Dashboard.</label>
+            <button id="btn-visit-dashboard" class="btn btn-secondary btn-sm flex-row flex-center" style="width: 100%; gap: 6px; padding: 8px; margin-top: 4px;">
+              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              <span>Go to Web Dashboard</span>
+            </button>
+          </div>
+        </div>
+
+        <button id="settings-sync-btn" class="btn btn-secondary flex-row flex-center">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+          <span>Sync Vault Now</span>
+        </button>
+
+        <button id="settings-logout-btn" class="btn btn-danger flex-row flex-center">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path></svg>
+          <span>Lock & Log Out</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Toast Notification Overlay -->
+    <div id="toast-container" class="toast-container flex-col"></div>
+
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

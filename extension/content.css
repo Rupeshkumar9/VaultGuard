@@ -1,0 +1,214 @@
+/* ──── Isolated Styles for VaultGuard Injected Elements ──── */
+
+.vg-input-overlay-icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  z-index: 2147483645;
+  color: #94a3b8;
+  transition: color 0.2s ease, transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+.vg-input-overlay-icon:hover {
+  color: #00f2fe;
+  transform: scale(1.08);
+}
+
+.vg-input-overlay-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Suggestions Dropdown Card */
+.vg-suggestions-card {
+  position: absolute;
+  width: 240px;
+  background-color: #14191d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 242, 254, 0.1);
+  z-index: 2147483646;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  color: #f8fafc;
+  animation: vgFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes vgFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.vg-suggestions-header {
+  padding: 8px 12px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.vg-suggestion-item {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  text-align: left;
+}
+
+.vg-suggestion-item:hover {
+  background-color: #1c232a;
+}
+
+.vg-suggestion-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vg-suggestion-user {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vg-suggestions-empty {
+  padding: 16px 12px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+/* Save Banner */
+.vg-save-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 480px;
+  max-width: calc(100% - 32px);
+  background-color: #14191d;
+  border: 1px solid rgba(0, 242, 254, 0.25);
+  border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 0 20px rgba(0, 242, 254, 0.15);
+  z-index: 2147483647;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #f8fafc;
+  animation: vgBannerIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes vgBannerIn {
+  from { opacity: 0; transform: translate(-50%, -20px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.vg-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-grow: 1;
+}
+
+.vg-banner-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+  color: #0c0f12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vg-banner-logo svg {
+  width: 18px;
+  height: 18px;
+}
+
+.vg-banner-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.vg-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vg-banner-desc {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+.vg-banner-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.vg-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.vg-btn-save {
+  background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+  color: #0c0f12;
+}
+
+.vg-btn-save:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+}
+
+.vg-btn-cancel {
+  background-color: transparent;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.vg-btn-cancel:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: #f8fafc;
+}
+
+.vg-banner-fadeOut {
+  animation: vgBannerOut 0.25s ease forwards;
+}
+
+@keyframes vgBannerOut {
+  from { opacity: 1; transform: translate(-50%, 0); }
+  to { opacity: 0; transform: translate(-50%, -20px); }
+}
