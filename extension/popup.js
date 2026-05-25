@@ -90,6 +90,7 @@ const btnGenerate = document.getElementById('btn-generate');
 const settingsUserEmail = document.getElementById('settings-user-email');
 const settingsServerUrl = document.getElementById('settings-server-url');
 const settingsLockTimeout = document.getElementById('settings-lock-timeout');
+const settingsRememberVault = document.getElementById('settings-remember-vault');
 const settingsSyncBtn = document.getElementById('settings-sync-btn');
 const settingsLogoutBtn = document.getElementById('settings-logout-btn');
 const btnVisitDashboard = document.getElementById('btn-visit-dashboard');
@@ -110,6 +111,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load lock timeout setting
   const timeoutConfig = await chrome.runtime.sendMessage({ action: 'GET_LOCK_TIMEOUT' });
   settingsLockTimeout.value = timeoutConfig.lockTimeout;
+
+  // Load remember vault checkbox setting
+  const rememberConfig = await chrome.runtime.sendMessage({ action: 'GET_REMEMBER_VAULT' });
+  if (settingsRememberVault) {
+    settingsRememberVault.checked = !!rememberConfig.rememberVault;
+  }
 
   // Check vault status
   await checkVaultStatus();
@@ -223,10 +230,14 @@ lockForm.addEventListener('submit', async (e) => {
   unlockBtnText.textContent = 'Decrypting...';
   
   try {
+    const settings = await chrome.storage.local.get(['rememberVault']);
+    const rememberVault = !!settings.rememberVault;
+
     const res = await chrome.runtime.sendMessage({
       action: 'UNLOCK_VAULT',
       email,
-      masterPassword
+      masterPassword,
+      rememberVault
     });
     
     if (res.success) {
@@ -802,6 +813,14 @@ settingsLockTimeout.addEventListener('change', async () => {
   await chrome.runtime.sendMessage({ action: 'SET_LOCK_TIMEOUT', lockTimeout: timeout });
   showToast('Inactivity timeout updated!');
 });
+
+if (settingsRememberVault) {
+  settingsRememberVault.addEventListener('change', async () => {
+    const enabled = settingsRememberVault.checked;
+    await chrome.runtime.sendMessage({ action: 'SET_REMEMBER_VAULT', rememberVault: enabled });
+    showToast(enabled ? 'Unlocked session will persist on restart.' : 'Unlocked session will clear on browser exit.');
+  });
+}
 
 settingsSyncBtn.addEventListener('click', async () => {
   const syncBtnText = settingsSyncBtn.querySelector('span');

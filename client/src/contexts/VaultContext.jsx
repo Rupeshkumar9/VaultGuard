@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
 import { api } from '../services/api';
 import { useCrypto } from './CryptoContext';
+import { localDb } from '../services/localDb';
 
 const VaultContext = createContext(null);
 
@@ -9,13 +10,6 @@ export const VaultProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const { encryptData, decryptData, isUnlocked } = useCrypto();
-
-  // Clear entries when vault is locked
-  useEffect(() => {
-    if (!isUnlocked) {
-      setEntries([]);
-    }
-  }, [isUnlocked]);
 
   // Helper to decrypt a single raw entry from the API
   const decryptEntry = useCallback(async (entry) => {
@@ -51,6 +45,28 @@ export const VaultProvider = ({ children }) => {
     }
   }, [decryptData]);
 
+  // Load and decrypt cached entries from IndexedDB immediately upon unlock
+  useEffect(() => {
+    const loadCachedEntries = async () => {
+      if (isUnlocked) {
+        try {
+          const cachedCiphers = await localDb.getAllEntries();
+          if (cachedCiphers && cachedCiphers.length > 0) {
+            const decryptedCached = await Promise.all(
+              cachedCiphers.map(entry => decryptEntry(entry))
+            );
+            setEntries(decryptedCached);
+          }
+        } catch (err) {
+          console.error('Failed to load cached entries from IndexedDB:', err);
+        }
+      } else {
+        setEntries([]);
+      }
+    };
+    loadCachedEntries();
+  }, [isUnlocked, decryptEntry]);
+
   // Fetch and decrypt all entries
   const fetchEntries = useCallback(async () => {
     if (!isUnlocked) return;
@@ -59,6 +75,9 @@ export const VaultProvider = ({ children }) => {
     try {
       const response = await api.get('/vault?trash=all');
       if (response.success && response.data) {
+        // Save encrypted data to IndexedDB cache
+        await localDb.saveEntries(response.data);
+
         const decryptedEntries = await Promise.all(
           response.data.map(entry => decryptEntry(entry))
         );

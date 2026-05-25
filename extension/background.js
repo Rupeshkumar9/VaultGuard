@@ -1,4 +1,5 @@
 import { decrypt, encrypt } from './crypto-helper.js';
+import { localDb } from './local-db.js';
 
 const DEFAULT_SERVER_URL = 'http://localhost:5000';
 let autoLockTimer = null;
@@ -8,6 +9,27 @@ if (chrome.storage.session) {
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' })
     .catch(err => console.log('Session storage access level already configured or unsupported:', err));
 }
+
+// ──── Session Restoration on Startup ────
+async function restoreSessionOnStartup() {
+  try {
+    const settings = await chrome.storage.local.get(['rememberVault', 'masterPassword', 'token', 'user']);
+    if (settings.rememberVault && settings.masterPassword) {
+      await chrome.storage.session.set({
+        masterPassword: settings.masterPassword,
+        token: settings.token,
+        user: settings.user
+      });
+      console.log('🔓 Extension session restored from local storage.');
+      startAutoLockTimer();
+    }
+  } catch (err) {
+    console.error('Session restoration failed:', err);
+  }
+}
+
+// Run startup check
+restoreSessionOnStartup();
 
 // ──── API Fetch Wrapper ────
 async function apiRequest(endpoint, method = 'GET', body = null) {
@@ -54,7 +76,12 @@ async function lockVault() {
     clearTimeout(autoLockTimer);
     autoLockTimer = null;
   }
-  await chrome.storage.session.remove(['masterPassword', 'token', 'user', 'decryptedEntries']);
+  // Clear session storage keys
+  await chrome.storage.session.remove(['masterPassword', 'token', 'user', 'encryptedEntries']);
+  
+  // Clear local storage keys (if any are saved there)
+  await chrome.storage.local.remove(['masterPassword', 'token', 'user']);
+  
   // Notify popup and content scripts if any are active
   chrome.runtime.sendMessage({ action: 'VAULT_LOCKED' }).catch(() => {});
 }
@@ -91,8 +118,9 @@ async function syncVault() {
   try {
     const response = await apiRequest('/vault');
     if (response.success && response.data) {
-      // Store encrypted entries in session storage as well to keep them in memory
+      // Store encrypted entries in both session and local IndexedDB database
       await chrome.storage.session.set({ encryptedEntries: response.data });
+      await localDb.saveEntries(response.data);
       return { success: true, count: response.data.length };
     } else {
       throw new Error(response.message || 'Failed to fetch vault ciphers.');
@@ -168,7 +196,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return { success: true };
         }
         case 'UNLOCK_VAULT': {
-          const { email, masterPassword } = message;
+          const { email, masterPassword, rememberVault } = message;
+          await chrome.storage.local.set({ rememberVault: !!rememberVault });
+          
           // 1. Call login endpoint to authenticate and get token
           const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
           if (loginRes.success) {
@@ -179,7 +209,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               masterPassword: masterPassword
             });
             
-            // 3. Trigger initial sync
+            // 3. If rememberVault is enabled, save to local storage as well
+            if (rememberVault) {
+              await chrome.storage.local.set({
+                token: loginRes.token,
+                user: loginRes.user,
+                masterPassword: masterPassword
+              });
+            } else {
+              await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+            }
+            
+            // 4. Trigger initial sync
             await syncVault();
             startAutoLockTimer();
             return { success: true, user: loginRes.user };
@@ -200,13 +241,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'SYNC_VAULT': {
           return await syncVault();
         }
+        case 'GET_REMEMBER_VAULT': {
+          const settings = await chrome.storage.local.get(['rememberVault']);
+          return { rememberVault: !!settings.rememberVault };
+        }
+        case 'SET_REMEMBER_VAULT': {
+          await chrome.storage.local.set({ rememberVault: !!message.rememberVault });
+          if (!message.rememberVault) {
+            await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+          } else {
+            const session = await chrome.storage.session.get(['token', 'user', 'masterPassword']);
+            if (session.masterPassword) {
+              await chrome.storage.local.set({
+                token: session.token,
+                user: session.user,
+                masterPassword: session.masterPassword
+              });
+            }
+          }
+          return { success: true };
+        }
         case 'GET_ENTRIES': {
           const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
           if (!session.masterPassword) {
             return { success: false, error: 'Vault is locked.' };
           }
           
-          const rawEntries = session.encryptedEntries || [];
+          let rawEntries = session.encryptedEntries;
+          if (!rawEntries) {
+            rawEntries = await localDb.getAllEntries();
+            await chrome.storage.session.set({ encryptedEntries: rawEntries });
+          }
+          
           const decryptedList = [];
 
           for (const entry of rawEntries) {
@@ -243,15 +309,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         case 'GET_MATCHING_CREDENTIALS': {
           const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
-          if (!session.masterPassword || !session.encryptedEntries) {
+          if (!session.masterPassword) {
             return { success: false, error: 'Vault is locked.' };
+          }
+
+          let rawEntries = session.encryptedEntries;
+          if (!rawEntries) {
+            rawEntries = await localDb.getAllEntries();
+            await chrome.storage.session.set({ encryptedEntries: rawEntries });
           }
 
           const pageUrl = message.url;
           const pageDomain = getDomain(pageUrl);
           if (!pageDomain) return { success: true, credentials: [] };
 
-          const rawEntries = session.encryptedEntries;
           const matching = [];
 
           for (const entry of rawEntries) {
