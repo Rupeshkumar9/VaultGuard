@@ -12,7 +12,7 @@ export default function VaultList({
   onToggleSelectEntry
 }) {
   
-  if (isLoading) {
+  if (isLoading && filteredEntries.length === 0) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {[1, 2, 3, 4, 5, 6].map((i) => (

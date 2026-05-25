@@ -1,0 +1,6 @@
+{
+  "appId": "com.vaultguard.app",
+  "appName": "VaultGuard",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

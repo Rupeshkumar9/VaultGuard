@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useCallback, useEffect } fr
 import { api } from '../services/api';
 import { useCrypto } from './CryptoContext';
 import { localDb } from '../services/localDb';
+import { vaultBridge } from '../services/vaultBridge';
 
 const VaultContext = createContext(null);
 
@@ -66,6 +67,18 @@ export const VaultProvider = ({ children }) => {
     };
     loadCachedEntries();
   }, [isUnlocked, decryptEntry]);
+
+  // Automatically sync active entries to the Capacitor native bridge when entries update
+  useEffect(() => {
+    if (isUnlocked) {
+      if (entries.length > 0) {
+        const activeEntries = entries.filter(e => !e.isInTrash);
+        vaultBridge.updateVault(activeEntries);
+      }
+    } else {
+      vaultBridge.clearVault();
+    }
+  }, [entries, isUnlocked]);
 
   // Fetch and decrypt all entries
   const fetchEntries = useCallback(async () => {

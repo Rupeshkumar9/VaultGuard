@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">VaultGuard</string>
+    <string name="title_activity_main">VaultGuard</string>
+    <string name="package_name">com.vaultguard.app</string>
+    <string name="custom_url_scheme">com.vaultguard.app</string>
+</resources>
