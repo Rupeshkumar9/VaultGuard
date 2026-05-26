@@ -5,7 +5,7 @@ const DEFAULT_SERVER_URL = 'http://localhost:5000';
 let autoLockTimer = null;
 
 // Initialize access level for session storage so popup can also access it
-if (chrome.storage.session) {
+if (chrome.storage.session && typeof chrome.storage.session.setAccessLevel === 'function') {
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' })
     .catch(err => console.log('Session storage access level already configured or unsupported:', err));
 }

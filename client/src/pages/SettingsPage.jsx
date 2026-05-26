@@ -24,6 +24,21 @@ export default function SettingsPage() {
   const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
     return localStorage.getItem('vaultguard_lock_timeout') || '5';
   });
+  const [serverUrl, setServerUrl] = useState(() => {
+    return localStorage.getItem('vaultguard_api_base') || import.meta.env.VITE_API_URL || 'https://vaultguard-qi2y.onrender.com';
+  });
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const handleSaveServerUrl = () => {
+    let cleanUrl = serverUrl.trim();
+    if (cleanUrl && !cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = 'https://' + cleanUrl;
+    }
+    localStorage.setItem('vaultguard_api_base', cleanUrl);
+    setServerUrl(cleanUrl);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
+  };
 
   const [importStatus, setImportStatus] = useState('');
   const [importError, setImportError] = useState('');
@@ -411,6 +426,44 @@ export default function SettingsPage() {
           <p className="text-[10px] text-text-secondary/60">
             Automatically lock the vault (clearing keys from memory) if there is no keyboard, mouse or touch activity.
           </p>
+        </div>
+      </div>
+
+      {/* Server Connection */}
+      <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-4">
+        <div className="flex items-center gap-3 border-b border-border-dark/50 pb-3">
+          <Settings className="w-5 h-5 text-accent-teal" />
+          <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">Server Connection</h3>
+        </div>
+
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-text-secondary">Vault Server URL</label>
+            <input
+              type="url"
+              value={serverUrl}
+              onChange={(e) => setServerUrl(e.target.value)}
+              placeholder="https://vaultguard-qi2y.onrender.com"
+              className="w-full max-w-md px-3 py-2 rounded-lg bg-bg-dark border border-border-dark text-text-primary text-sm focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/30"
+            />
+            <p className="text-[10px] text-text-secondary/60">
+              Configure the Express API backend server URL for secure logins and database syncing.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveServerUrl}
+            className="px-4 py-2 rounded-lg bg-accent-teal hover:opacity-90 active:scale-[0.98] transition-all text-bg-dark font-semibold text-xs cursor-pointer"
+          >
+            Save Configuration
+          </button>
+
+          {saveSuccess && (
+            <p className="text-xs text-accent-teal font-medium mt-1">
+              ✓ Server Connection URL saved!
+            </p>
+          )}
         </div>
       </div>
 

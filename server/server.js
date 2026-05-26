@@ -20,10 +20,26 @@ const app = express();
 // Set security HTTP headers
 app.use(helmet());
 
-// Enable CORS for the frontend
+// Enable CORS for the frontend (including local development and mobile Capacitor origins)
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost',
+  'capacitor://localhost'
+];
+if (process.env.CLIENT_URL) {
+  process.env.CLIENT_URL.split(',').forEach(o => allowedOrigins.push(o.trim()));
+}
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, postman, curl)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true, // Allow cookies
   })
 );

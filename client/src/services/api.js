@@ -28,8 +28,8 @@ export const clearToken = () => {
  * @param {object} options - Fetch options
  */
 const request = async (endpoint, options = {}) => {
-  // Use VITE_API_URL in production, fallback to relative path in dev (relying on proxy)
-  let apiBase = import.meta.env.VITE_API_URL || '';
+  // Resolve API base URL dynamically: checks localStorage override, then env, then defaults to Render hosted backend
+  let apiBase = localStorage.getItem('vaultguard_api_base') || import.meta.env.VITE_API_URL || 'https://vaultguard-qi2y.onrender.com';
   if (apiBase.endsWith('/')) {
     apiBase = apiBase.slice(0, -1);
   }

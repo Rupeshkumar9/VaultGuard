@@ -103,23 +103,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Let the background script know the user is active in the extension popup
   chrome.runtime.sendMessage({ action: 'USER_ACTIVITY' }).catch(() => {});
 
-  // Load configured Server URL in lock view
-  const serverConfig = await chrome.runtime.sendMessage({ action: 'GET_SERVER_URL' });
-  serverUrlInput.value = serverConfig.serverUrl;
-  settingsServerUrl.value = serverConfig.serverUrl;
-
-  // Load lock timeout setting
-  const timeoutConfig = await chrome.runtime.sendMessage({ action: 'GET_LOCK_TIMEOUT' });
-  settingsLockTimeout.value = timeoutConfig.lockTimeout;
-
-  // Load remember vault checkbox setting
-  const rememberConfig = await chrome.runtime.sendMessage({ action: 'GET_REMEMBER_VAULT' });
-  if (settingsRememberVault) {
-    settingsRememberVault.checked = !!rememberConfig.rememberVault;
+  try {
+    // Load configured Server URL in lock view
+    const serverConfig = await chrome.runtime.sendMessage({ action: 'GET_SERVER_URL' });
+    serverUrlInput.value = serverConfig.serverUrl || 'http://localhost:5000';
+    settingsServerUrl.value = serverConfig.serverUrl || 'http://localhost:5000';
+  } catch (err) {
+    console.warn('Failed to load Server URL configuration:', err);
   }
 
-  // Check vault status
-  await checkVaultStatus();
+  try {
+    // Load lock timeout setting
+    const timeoutConfig = await chrome.runtime.sendMessage({ action: 'GET_LOCK_TIMEOUT' });
+    settingsLockTimeout.value = timeoutConfig.lockTimeout || '5';
+  } catch (err) {
+    console.warn('Failed to load Lock Timeout configuration:', err);
+  }
+
+  try {
+    // Load remember vault checkbox setting
+    const rememberConfig = await chrome.runtime.sendMessage({ action: 'GET_REMEMBER_VAULT' });
+    if (settingsRememberVault) {
+      settingsRememberVault.checked = !!rememberConfig.rememberVault;
+    }
+  } catch (err) {
+    console.warn('Failed to load Remember Vault configuration:', err);
+  }
+
+  try {
+    // Check vault status
+    await checkVaultStatus();
+  } catch (err) {
+    console.warn('Failed to check vault status:', err);
+  }
   
   // Get active tab URL to check for matching credentials
   try {
