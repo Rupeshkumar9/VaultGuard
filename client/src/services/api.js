@@ -69,7 +69,7 @@ const request = async (endpoint, options = {}) => {
   } catch (error) {
     // Forward custom API errors or network failure messages
     if (error.status) throw error;
-    throw new Error('Network error. Check if your backend server is running.');
+    throw new Error(`Network error connecting to ${url}. Check if your backend server is running.`);
   }
 };
 
