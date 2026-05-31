@@ -35,3 +35,8 @@ Thumbs.db
 
 # Android Local SDK
 android-sdk/
+
+# Local platform tools
+platform-tools/
+platform-tools.zip
+

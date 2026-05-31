@@ -3,12 +3,9 @@ import { registerPlugin } from '@capacitor/core';
 const VaultBridge = registerPlugin('VaultBridge');
 
 export const vaultBridge = {
-  async updateVault(entries, aesKeyBase64) {
+  async updateVault(entries) {
     try {
-      await VaultBridge.updateVault({
-        entries,
-        aesKey: aesKeyBase64
-      });
+      await VaultBridge.updateVault({ entries });
       console.log('Sync to native autofill complete');
       return true;
     } catch (err) {
@@ -25,6 +22,17 @@ export const vaultBridge = {
     } catch (err) {
       console.warn('VaultBridge native plugin not available:', err.message);
       return false;
+    }
+  },
+
+  async diagnose() {
+    try {
+      const result = await VaultBridge.diagnose();
+      console.log('VaultBridge diagnosis:', JSON.stringify(result));
+      return result;
+    } catch (err) {
+      console.warn('VaultBridge diagnose not available:', err.message);
+      return { status: 'UNAVAILABLE', message: err.message, count: 0 };
     }
   }
 };

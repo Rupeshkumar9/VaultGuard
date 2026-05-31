@@ -11,13 +11,13 @@ export default function PasswordGenerator() {
   const [symbols, setSymbols] = useState(true);
   const [excludeSimilar, setExcludeSimilar] = useState(false);
   const [passwordHistory, setPasswordHistory] = useState([]);
-  
+
   const { copy, isCopied } = useClipboard(15000);
 
   const generate = () => {
     let charset = '';
     let reqChars = []; // Ensure at least one character of each selected type is included
-    
+
     let uppers = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let lowers = 'abcdefghijklmnopqrstuvwxyz';
     let nums = '0123456789';
@@ -78,7 +78,7 @@ export default function PasswordGenerator() {
 
     const newPassword = result.join('');
     setPassword(newPassword);
-    
+
     // Add to history (max 5 items, keep it secure in component memory)
     setPasswordHistory(prev => [newPassword, ...prev.slice(0, 4)]);
   };
@@ -91,7 +91,7 @@ export default function PasswordGenerator() {
   // Calculate password strength and entropy
   const getStrength = () => {
     if (!password || password.startsWith('Select')) return { label: 'None', color: 'bg-border-dark', pct: 0, text: 'text-text-secondary' };
-    
+
     let poolSize = 0;
     if (uppercase) poolSize += excludeSimilar ? 23 : 26;
     if (lowercase) poolSize += excludeSimilar ? 23 : 26;
@@ -101,7 +101,7 @@ export default function PasswordGenerator() {
     if (poolSize === 0) return { label: 'None', color: 'bg-border-dark', pct: 0, text: 'text-text-secondary' };
 
     const entropy = Math.round(length * Math.log2(poolSize));
-    
+
     if (entropy < 40) return { label: 'Weak (Unsafe)', color: 'bg-red-500', pct: 25, text: 'text-red-400', entropy };
     if (entropy < 60) return { label: 'Fair (Not recommended)', color: 'bg-amber-500', pct: 50, text: 'text-amber-400', entropy };
     if (entropy < 80) return { label: 'Strong (Secure)', color: 'bg-emerald-500', pct: 75, text: 'text-emerald-400', entropy };
@@ -128,11 +128,10 @@ export default function PasswordGenerator() {
           <button
             onClick={() => copy(password)}
             disabled={!password || password.startsWith('Select')}
-            className={`px-4 py-3 rounded-xl border transition-all active:scale-[0.97] flex items-center justify-center shrink-0 cursor-pointer ${
-              isCopied 
+            className={`px-4 py-3 rounded-xl border transition-all active:scale-[0.97] flex items-center justify-center shrink-0 cursor-pointer ${isCopied
                 ? 'bg-accent-glow border-accent-teal/30 text-accent-teal font-medium'
                 : 'bg-bg-dark border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-            }`}
+              }`}
           >
             {isCopied ? (
               <span className="text-xs font-semibold flex items-center gap-1.5">
@@ -162,14 +161,14 @@ export default function PasswordGenerator() {
               <span className="text-text-secondary font-medium">Password Strength:</span>
               <span className={`font-bold ${strength.text}`}>{strength.label}</span>
             </div>
-            
+
             <div className="h-2 w-full bg-bg-dark border border-border-dark rounded-full overflow-hidden">
-              <div 
-                className={`h-full transition-all duration-500 ease-out ${strength.color}`} 
-                style={{ width: `${strength.pct}%` }} 
+              <div
+                className={`h-full transition-all duration-500 ease-out ${strength.color}`}
+                style={{ width: `${strength.pct}%` }}
               />
             </div>
-            
+
             <div className="flex items-center gap-1.5 text-[10px] text-text-secondary/60">
               <Info className="w-3.5 h-3.5" />
               <span>Entropy: <span className="font-mono text-text-secondary">{strength.entropy} bits</span>. Values above 60 bits are generally safe.</span>
@@ -180,11 +179,11 @@ export default function PasswordGenerator() {
 
       {/* Options Panel */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        
+
         {/* Settings Card */}
         <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-4">
           <h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary/70">Generator Options</h3>
-          
+
           {/* Length Slider */}
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-text-secondary">
@@ -226,7 +225,7 @@ export default function PasswordGenerator() {
         {/* Character Checklist Card */}
         <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-4">
           <h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary/70">Character Requirements</h3>
-          
+
           <div className="space-y-3.5">
             <label className="flex items-center justify-between p-2 rounded-lg hover:bg-bg-dark/40 cursor-pointer transition-colors text-sm">
               <span className="text-text-primary">A-Z (Uppercase Letters)</span>
@@ -274,7 +273,7 @@ export default function PasswordGenerator() {
           <h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary/70">Recent Session History</h3>
           <div className="space-y-1.5">
             {passwordHistory.slice(1).map((histPass, index) => (
-              <div 
+              <div
                 key={index}
                 className="flex items-center justify-between px-3 py-2 rounded-lg bg-bg-dark border border-border-dark/60 font-mono text-xs text-text-secondary select-all hover:bg-bg-dark transition-colors"
               >

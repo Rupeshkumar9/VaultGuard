@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -17,8 +18,8 @@ public class VaultBridgePlugin extends Plugin {
     private static final String KEY_ENTRIES = "decrypted_entries";
 
     private SharedPreferences getEncryptedPrefs() {
+        Context context = getContext().getApplicationContext();
         try {
-            Context context = getContext();
             MasterKey masterKey = new MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build();
@@ -30,8 +31,8 @@ public class VaultBridgePlugin extends Plugin {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             );
         } catch (Exception e) {
-            e.printStackTrace();
-            return null;
+            android.util.Log.e("VaultBridge", "EncryptedSharedPreferences failed, falling back to standard SharedPreferences", e);
+            return context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE);
         }
     }
 
@@ -39,6 +40,7 @@ public class VaultBridgePlugin extends Plugin {
     public void updateVault(PluginCall call) {
         JSArray entries = call.getArray("entries");
         if (entries == null) {
+            android.util.Log.e("VaultBridge", "updateVault called with missing entries list");
             call.reject("Missing entries list");
             return;
         }
@@ -46,13 +48,16 @@ public class VaultBridgePlugin extends Plugin {
         try {
             SharedPreferences prefs = getEncryptedPrefs();
             if (prefs == null) {
-                call.reject("Failed to initialize secure storage");
+                android.util.Log.e("VaultBridge", "updateVault failed to initialize storage");
+                call.reject("Failed to initialize storage");
                 return;
             }
 
+            android.util.Log.d("VaultBridge", "Syncing entries count: " + entries.length());
             prefs.edit().putString(KEY_ENTRIES, entries.toString()).apply();
             call.resolve();
         } catch (Exception e) {
+            android.util.Log.e("VaultBridge", "updateVault write error", e);
             call.reject("Failed to save entries: " + e.getMessage());
         }
     }
@@ -62,11 +67,56 @@ public class VaultBridgePlugin extends Plugin {
         try {
             SharedPreferences prefs = getEncryptedPrefs();
             if (prefs != null) {
+                android.util.Log.d("VaultBridge", "Clearing native autofill data");
                 prefs.edit().remove(KEY_ENTRIES).apply();
             }
             call.resolve();
         } catch (Exception e) {
+            android.util.Log.e("VaultBridge", "clearVault error", e);
             call.reject("Failed to clear secure storage: " + e.getMessage());
         }
+    }
+
+    /**
+     * Diagnostic method to verify credentials are stored and readable.
+     * Returns the count of stored entries and a preview of the data.
+     */
+    @PluginMethod
+    public void diagnose(PluginCall call) {
+        JSObject result = new JSObject();
+        try {
+            SharedPreferences prefs = getEncryptedPrefs();
+            if (prefs == null) {
+                result.put("status", "ERROR");
+                result.put("message", "Failed to open SharedPreferences");
+                result.put("count", 0);
+                call.resolve(result);
+                return;
+            }
+
+            String rawJson = prefs.getString(KEY_ENTRIES, null);
+            if (rawJson == null || rawJson.isEmpty()) {
+                result.put("status", "EMPTY");
+                result.put("message", "No credentials stored in SharedPreferences");
+                result.put("count", 0);
+            } else {
+                org.json.JSONArray entries = new org.json.JSONArray(rawJson);
+                result.put("status", "OK");
+                result.put("count", entries.length());
+                result.put("message", entries.length() + " credentials stored and readable");
+
+                // Include first entry title as preview (no sensitive data)
+                if (entries.length() > 0) {
+                    org.json.JSONObject first = entries.getJSONObject(0);
+                    result.put("firstEntryTitle", first.optString("title", "Unknown"));
+                    result.put("firstEntryWebsite", first.optString("website", "None"));
+                }
+            }
+        } catch (Exception e) {
+            result.put("status", "ERROR");
+            result.put("message", "Exception: " + e.getMessage());
+            result.put("count", 0);
+        }
+        call.resolve(result);
     }
 }

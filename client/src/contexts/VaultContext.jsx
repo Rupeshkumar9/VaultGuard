@@ -70,14 +70,20 @@ export const VaultProvider = ({ children }) => {
 
   // Automatically sync active entries to the Capacitor native bridge when entries update
   useEffect(() => {
-    if (isUnlocked) {
-      if (entries.length > 0) {
-        const activeEntries = entries.filter(e => !e.isInTrash);
-        vaultBridge.updateVault(activeEntries);
+    const syncAndVerify = async () => {
+      if (isUnlocked) {
+        if (entries.length > 0) {
+          const activeEntries = entries.filter(e => !e.isInTrash);
+          await vaultBridge.updateVault(activeEntries);
+          // Verify the sync worked
+          const diag = await vaultBridge.diagnose();
+          console.log('[VaultSync] Diagnosis after sync:', diag);
+        }
+      } else {
+        vaultBridge.clearVault();
       }
-    } else {
-      vaultBridge.clearVault();
-    }
+    };
+    syncAndVerify();
   }, [entries, isUnlocked]);
 
   // Fetch and decrypt all entries
