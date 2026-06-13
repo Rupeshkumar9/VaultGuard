@@ -1,4 +1,4 @@
 node_modules/
 .env
 *.log
-_issues
+_issues/

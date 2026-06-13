@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, Plus, Menu, User, Shield } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import ServerStatus from './ServerStatus';
 
 export default function Header({ 
   searchQuery, 
@@ -36,6 +37,9 @@ export default function Header({
 
       {/* Right side: Add Entry + User Profile */}
       <div className="flex items-center gap-4">
+        {/* Server Connection Status Indicator */}
+        <ServerStatus />
+
         {/* Add Entry Button */}
         <button
           onClick={onOpenAddEntry}
