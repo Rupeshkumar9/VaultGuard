@@ -33,8 +33,13 @@ if (process.env.CLIENT_URL) {
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, postman, curl)
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Allow requests with no origin (like mobile apps, postman, curl) or browser extensions
+      const isExtensionOrigin =
+        origin &&
+        (origin.startsWith('chrome-extension://') ||
+          origin.startsWith('moz-extension://'));
+
+      if (!origin || allowedOrigins.includes(origin) || isExtensionOrigin) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
