@@ -1,6 +1,6 @@
 # 🔐 VaultGuard
 
-An open-source, **Zero-Knowledge**, **Offline-First** password manager designed for Web, Android (with native Autofill suggestions), and Browser Extensions. 
+An open-source, **Zero-Knowledge** password manager with a **Cache-First** vault loading strategy, designed for Web, Android (with native Autofill suggestions), and Browser Extensions. 
 
 VaultGuard is engineered around absolute privacy, ensuring that your raw credentials never touch the internet and are encrypted client-side before being synchronized.
 
@@ -14,10 +14,11 @@ VaultGuard is built on a **Zero-Knowledge** architecture. Your master password i
 * The server only receives and stores opaque, encrypted ciphers, initialization vectors (`iv`), and random salts.
 * **The database is completely blind**: Even if the backend server or MongoDB database is breached, the attacker receives nothing but mathematically useless ciphertext.
 
-### 2. Offline-First Performance
-Designed to work flawlessly in Airplane Mode or under unstable connections:
-* **IndexedDB Cache**: The web client caches your encrypted vault locally. When you unlock the vault, it decrypts and renders your credentials in-memory instantly, with zero latency or network requests.
-* **Hardware-Backed Device Sync**: The Android mobile app automatically pushes your decrypted credentials across a native Capacitor bridge into Android’s secure **`EncryptedSharedPreferences`**. This storage uses AES-256 GCM keys managed securely by the **Android Keystore System** (hardware enclave).
+### 2. Cache-First Vault Loading Strategy
+Designed to remain responsive and fully functional regardless of backend latency:
+* **Encrypted IndexedDB Storage**: The web client caches your encrypted vault locally. When you unlock the vault, it decrypts and renders your credentials in-memory instantly, with zero initial network overhead.
+* **Background Server Refresh**: Once the local vault is loaded and decrypted, VaultGuard performs a background synchronization/refresh against the backend API to fetch the latest server state, updating the local cache seamlessly.
+* **Hardware-Backed Device Sync**: The Android mobile app automatically pushes your decrypted credentials across a native Capacitor bridge into Android’s secure **`EncryptedSharedPreferences`**. This storage uses AES-256 GCM keys managed securely by the **Android Keystore System** (hardware enclave) for native offline Autofill.
 
 ### 3. Native Android Autofill Integration
 VaultGuard hooks directly into the system-level Android Autofill framework:

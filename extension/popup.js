@@ -872,3 +872,12 @@ btnVisitDashboard.addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://vault-guard-xi.vercel.app/' });
 });
 
+// ──── Message Listener from Background Worker ────
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'VAULT_SYNCED') {
+    loadVaultEntries();
+  } else if (message.action === 'VAULT_LOCKED') {
+    checkVaultStatus();
+  }
+});
+

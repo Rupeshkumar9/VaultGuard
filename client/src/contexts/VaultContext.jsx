@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { useCrypto } from './CryptoContext';
 import { localDb } from '../services/localDb';
 import { vaultBridge } from '../services/vaultBridge';
+import { isNative } from '../utils/platform';
 
 const VaultContext = createContext(null);
 
@@ -46,20 +47,22 @@ export const VaultProvider = ({ children }) => {
     }
   }, [decryptData]);
 
-  // Load and decrypt cached entries from IndexedDB immediately upon unlock
+  // Load and decrypt cached entries from IndexedDB immediately upon unlock (mobile only)
   useEffect(() => {
     const loadCachedEntries = async () => {
       if (isUnlocked) {
-        try {
-          const cachedCiphers = await localDb.getAllEntries();
-          if (cachedCiphers && cachedCiphers.length > 0) {
-            const decryptedCached = await Promise.all(
-              cachedCiphers.map(entry => decryptEntry(entry))
-            );
-            setEntries(decryptedCached);
+        if (isNative) {
+          try {
+            const cachedCiphers = await localDb.getAllEntries();
+            if (cachedCiphers && cachedCiphers.length > 0) {
+              const decryptedCached = await Promise.all(
+                cachedCiphers.map(entry => decryptEntry(entry))
+              );
+              setEntries(decryptedCached);
+            }
+          } catch (err) {
+            console.error('Failed to load cached entries from IndexedDB:', err);
           }
-        } catch (err) {
-          console.error('Failed to load cached entries from IndexedDB:', err);
         }
       } else {
         setEntries([]);
@@ -94,8 +97,10 @@ export const VaultProvider = ({ children }) => {
     try {
       const response = await api.get('/vault?trash=all');
       if (response.success && response.data) {
-        // Save encrypted data to IndexedDB cache
-        await localDb.saveEntries(response.data);
+        // Save encrypted data to IndexedDB cache (mobile only)
+        if (isNative) {
+          await localDb.saveEntries(response.data);
+        }
 
         const decryptedEntries = await Promise.all(
           response.data.map(entry => decryptEntry(entry))

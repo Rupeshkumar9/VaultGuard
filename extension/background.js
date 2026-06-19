@@ -20,6 +20,11 @@ async function restoreSessionOnStartup() {
         token: settings.token,
         user: settings.user
       });
+      if (settings.user) {
+        await chrome.storage.local.set({
+          cachedUser: { id: settings.user.id || settings.user._id, email: settings.user.email }
+        });
+      }
       console.log('🔓 Extension session restored from local storage.');
       startAutoLockTimer();
     }
@@ -121,6 +126,8 @@ async function syncVault() {
       // Store encrypted entries in both session and local IndexedDB database
       await chrome.storage.session.set({ encryptedEntries: response.data });
       await localDb.saveEntries(response.data);
+      // Notify popup that sync completed
+      chrome.runtime.sendMessage({ action: 'VAULT_SYNCED', count: response.data.length }).catch(() => {});
       return { success: true, count: response.data.length };
     } else {
       throw new Error(response.message || 'Failed to fetch vault ciphers.');
@@ -199,33 +206,111 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const { email, masterPassword, rememberVault } = message;
           await chrome.storage.local.set({ rememberVault: !!rememberVault });
           
-          // 1. Call login endpoint to authenticate and get token
-          const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
-          if (loginRes.success) {
-            // 2. Set token, user, and master password in-memory session storage
-            await chrome.storage.session.set({
-              token: loginRes.token,
-              user: loginRes.user,
-              masterPassword: masterPassword
-            });
+          let unlockedLocally = false;
+          let userToUse = null;
+
+          try {
+            const settings = await chrome.storage.local.get(['cachedUser']);
+            const cachedUser = settings.cachedUser;
             
-            // 3. If rememberVault is enabled, save to local storage as well
+            if (cachedUser && cachedUser.email && cachedUser.email.toLowerCase() === email.toLowerCase()) {
+              const cachedEntries = await localDb.getAllEntries();
+              const testEntry = cachedEntries.find(e => e.encryptedData && e.iv && e.salt);
+              
+              if (testEntry) {
+                // Try to decrypt the entry to verify password
+                await decrypt(testEntry.encryptedData, testEntry.iv, testEntry.salt, masterPassword);
+                unlockedLocally = true;
+                userToUse = cachedUser;
+              }
+            }
+          } catch (err) {
+            console.log('Local decryption failed or no cache, will try server auth:', err);
+          }
+
+          if (unlockedLocally) {
+            // Restore cached token if it exists in local storage
+            const localSettings = await chrome.storage.local.get(['token']);
+            
+            // Unlock immediately using cached data
+            await chrome.storage.session.set({
+              user: userToUse,
+              masterPassword: masterPassword,
+              token: localSettings.token || null
+            });
+
+            // If rememberVault is enabled, save to local storage as well
             if (rememberVault) {
               await chrome.storage.local.set({
-                token: loginRes.token,
-                user: loginRes.user,
+                user: userToUse,
                 masterPassword: masterPassword
               });
             } else {
               await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
             }
-            
-            // 4. Trigger initial sync
-            await syncVault();
+
             startAutoLockTimer();
-            return { success: true, user: loginRes.user };
+
+            // Background wake, login, and sync
+            (async () => {
+              try {
+                const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
+                if (loginRes.success) {
+                  await chrome.storage.session.set({
+                    token: loginRes.token,
+                    user: loginRes.user
+                  });
+                  await chrome.storage.local.set({
+                    cachedUser: { id: loginRes.user.id || loginRes.user._id, email: loginRes.user.email }
+                  });
+                  if (rememberVault) {
+                    await chrome.storage.local.set({
+                      token: loginRes.token,
+                      user: loginRes.user
+                    });
+                  }
+                  await syncVault();
+                }
+              } catch (err) {
+                console.error('Background login/sync failed:', err);
+                if (err.status === 401) {
+                  console.warn('Background login returned 401. Locking vault.');
+                  await lockVault();
+                }
+              }
+            })();
+
+            return { success: true, user: userToUse };
+          } else {
+            // Standard server-based authentication flow (for first login, different user, or changed password)
+            const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
+            if (loginRes.success) {
+              await chrome.storage.session.set({
+                token: loginRes.token,
+                user: loginRes.user,
+                masterPassword: masterPassword
+              });
+              
+              await chrome.storage.local.set({
+                cachedUser: { id: loginRes.user.id || loginRes.user._id, email: loginRes.user.email }
+              });
+
+              if (rememberVault) {
+                await chrome.storage.local.set({
+                  token: loginRes.token,
+                  user: loginRes.user,
+                  masterPassword: masterPassword
+                });
+              } else {
+                await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+              }
+              
+              await syncVault();
+              startAutoLockTimer();
+              return { success: true, user: loginRes.user };
+            }
+            throw new Error('Invalid credentials.');
           }
-          throw new Error('Invalid credentials.');
         }
         case 'LOCK_VAULT': {
           await lockVault();

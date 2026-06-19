@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { api, setToken, clearToken } from '../services/api';
 import { localDb } from '../services/localDb';
+import { isNative } from '../utils/platform';
 
 const AuthContext = createContext(null);
 const AUTH_CACHE_KEY = 'vaultguard_cached_user';
@@ -33,12 +34,16 @@ const cacheUser = (user) => {
   const minimalUser = getMinimalUser(user);
   if (!minimalUser) return;
   localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(minimalUser));
-  localDb.saveUserProfile(user);
+  if (isNative) {
+    localDb.saveUserProfile(user);
+  }
 };
 
 const clearCachedUser = () => {
   localStorage.removeItem(AUTH_CACHE_KEY);
-  localDb.clearUserProfile();
+  if (isNative) {
+    localDb.clearUserProfile();
+  }
 };
 
 export const AuthProvider = ({ children }) => {
@@ -52,7 +57,7 @@ export const AuthProvider = ({ children }) => {
     let isMounted = true;
 
     const loadCachedProfile = async () => {
-      if (!cachedUser) return;
+      if (!cachedUser || !isNative) return;
 
       const profile = await localDb.getUserProfile();
       if (isMounted && profile) {
@@ -85,6 +90,28 @@ export const AuthProvider = ({ children }) => {
           console.log('Using cached local session while server auth is unavailable.');
           setUser(cachedUser);
           setIsAuthenticated(true);
+        } else if (isNative) {
+          // Mobile offline fallback: check if we have a user profile saved in IndexedDB
+          try {
+            const profile = await localDb.getUserProfile();
+            if (profile) {
+              console.log('Using cached IndexedDB profile for offline mobile auth.');
+              const minimalUser = getMinimalUser(profile);
+              setUser({
+                ...minimalUser,
+                ...profile,
+              });
+              setIsAuthenticated(true);
+            } else {
+              console.log('No active session or cached profile found.');
+              setUser(null);
+              setIsAuthenticated(false);
+            }
+          } catch (dbErr) {
+            console.error('Failed to query localDb for offline auth:', dbErr);
+            setUser(null);
+            setIsAuthenticated(false);
+          }
         } else {
           console.log('No active session found.');
           setUser(null);
