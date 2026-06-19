@@ -85,35 +85,38 @@ export const AuthProvider = ({ children }) => {
       } catch (error) {
         if (!isMounted) return;
 
-        if (cachedUser) {
-          // Render cached vault data while a sleeping/free backend wakes or when offline.
-          console.log('Using cached local session while server auth is unavailable.');
-          setUser(cachedUser);
-          setIsAuthenticated(true);
-        } else if (isNative) {
-          // Mobile offline fallback: check if we have a user profile saved in IndexedDB
-          try {
-            const profile = await localDb.getUserProfile();
-            if (profile) {
-              console.log('Using cached IndexedDB profile for offline mobile auth.');
-              const minimalUser = getMinimalUser(profile);
-              setUser({
-                ...minimalUser,
-                ...profile,
-              });
-              setIsAuthenticated(true);
-            } else {
-              console.log('No active session or cached profile found.');
+        if (isNative) {
+          if (cachedUser) {
+            // Render cached vault data while a sleeping/free backend wakes or when offline.
+            console.log('Using cached local session while server auth is unavailable.');
+            setUser(cachedUser);
+            setIsAuthenticated(true);
+          } else {
+            // Mobile offline fallback: check if we have a user profile saved in IndexedDB
+            try {
+              const profile = await localDb.getUserProfile();
+              if (profile) {
+                console.log('Using cached IndexedDB profile for offline mobile auth.');
+                const minimalUser = getMinimalUser(profile);
+                setUser({
+                  ...minimalUser,
+                  ...profile,
+                });
+                setIsAuthenticated(true);
+              } else {
+                console.log('No active session or cached profile found.');
+                setUser(null);
+                setIsAuthenticated(false);
+              }
+            } catch (dbErr) {
+              console.error('Failed to query localDb for offline auth:', dbErr);
               setUser(null);
               setIsAuthenticated(false);
             }
-          } catch (dbErr) {
-            console.error('Failed to query localDb for offline auth:', dbErr);
-            setUser(null);
-            setIsAuthenticated(false);
           }
         } else {
-          console.log('No active session found.');
+          // Web offline logic: do not support offline authentication
+          console.log('Server auth unavailable and offline access disabled for web.');
           setUser(null);
           setIsAuthenticated(false);
         }
