@@ -10,7 +10,8 @@ export default function VaultList({
   onSelectEntry, 
   onOpenAddEntry,
   selectedIds = [],
-  onToggleSelectEntry
+  onToggleSelectEntry,
+  onClone
 }) {
   
   if (isLoading && filteredEntries.length === 0) {
@@ -93,6 +94,7 @@ export default function VaultList({
           onSelect={onSelectEntry} 
           isSelected={selectedIds.includes(entry._id)}
           onToggleSelect={onToggleSelectEntry}
+          onClone={onClone}
         />
       ))}
     </div>

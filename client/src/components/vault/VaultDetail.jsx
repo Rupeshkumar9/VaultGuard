@@ -221,7 +221,6 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
           {/* Delete Button with inline confirmation */}
           <button
             onClick={handleDeleteClick}
-            onMouseLeave={() => setIsConfirmingDelete(false)}
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
               isConfirmingDelete
                 ? 'bg-red-500 border-red-600 text-white hover:bg-red-600 shadow-md shadow-red-500/10'

@@ -549,5 +549,53 @@ async function init() {
   }, true);
 }
 
+// ──── Autofill Handler from Extension Popup ────
+function autofillCredentials(username, password) {
+  scanForInputs();
+  
+  if (detectedInputs.length === 0) {
+    const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
+    const emailOrTextInputs = Array.from(document.querySelectorAll('input')).filter(input => {
+      const type = (input.type || '').toLowerCase();
+      return type === 'email' || type === 'text';
+    });
+    
+    if (passwordInputs.length > 0) {
+      const passInput = passwordInputs[0];
+      const usernameInput = emailOrTextInputs[0] || null;
+      detectedInputs.push({ password: passInput, username: usernameInput });
+    }
+  }
+
+  if (detectedInputs.length > 0) {
+    let filled = false;
+    detectedInputs.forEach(pair => {
+      if (pair.username && username) {
+        pair.username.value = username;
+        pair.username.dispatchEvent(new Event('input', { bubbles: true }));
+        pair.username.dispatchEvent(new Event('change', { bubbles: true }));
+        filled = true;
+      }
+      if (pair.password && password) {
+        pair.password.value = password;
+        pair.password.dispatchEvent(new Event('input', { bubbles: true }));
+        pair.password.dispatchEvent(new Event('change', { bubbles: true }));
+        filled = true;
+      }
+    });
+    return filled;
+  }
+  return false;
+}
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'AUTOFILL_CREDENTIALS') {
+    const success = autofillCredentials(request.username, request.password);
+    sendResponse({ success });
+  }
+  return true;
+});
+
 // Boot content script
 init();
+

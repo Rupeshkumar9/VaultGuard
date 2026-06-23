@@ -202,10 +202,16 @@ export const VaultProvider = ({ children }) => {
           data: entryData
         });
         if (response.success && response.entry) {
+          const decryptedEntry = {
+            ...response.entry,
+            username: entryData.username || '',
+            password: entryData.password || '',
+            notes: entryData.notes || ''
+          };
           if (!skipFetch) {
             await fetchEntries();
           }
-          return response.entry;
+          return decryptedEntry;
         } else {
           throw new Error(response.error || 'Failed to save credential in extension.');
         }
@@ -254,8 +260,14 @@ export const VaultProvider = ({ children }) => {
           data: { id, ...entryData }
         });
         if (response.success && response.entry) {
+          const decryptedEntry = {
+            ...response.entry,
+            username: entryData.username || '',
+            password: entryData.password || '',
+            notes: entryData.notes || ''
+          };
           await fetchEntries();
-          return response.entry;
+          return decryptedEntry;
         } else {
           throw new Error(response.error || 'Failed to update credential in extension.');
         }

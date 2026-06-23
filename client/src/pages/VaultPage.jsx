@@ -12,6 +12,7 @@ import { useVault } from '../contexts/VaultContext';
 import { useAutoLock } from '../hooks/useAutoLock';
 import { useCrypto } from '../contexts/CryptoContext';
 import { isExtension } from '../utils/platform';
+import { getDomain, domainsMatch } from '../utils/helpers';
 
 export default function VaultPage() {
   const { lock } = useCrypto();
@@ -19,6 +20,7 @@ export default function VaultPage() {
     entries, 
     isLoading, 
     fetchEntries, 
+    addEntry,
     deleteEntry, 
     deleteEntries,
     restoreEntry,
@@ -36,6 +38,8 @@ export default function VaultPage() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [showTrashOnly, setShowTrashOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentTabDomain, setCurrentTabDomain] = useState('');
+  const [isDomainFiltered, setIsDomainFiltered] = useState(false);
 
   // Bulk actions & advanced filtering states
   const [selectedIds, setSelectedIds] = useState([]);
@@ -60,19 +64,54 @@ export default function VaultPage() {
     fetchEntries();
   }, [fetchEntries]);
 
+  // Get active tab domain in extension context
+  useEffect(() => {
+    if (isExtension) {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs && tabs[0] && tabs[0].url) {
+              const domain = getDomain(tabs[0].url);
+              setCurrentTabDomain(domain);
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching tab domain:', err);
+      }
+    }
+  }, []);
+
   // Reset selection when filters change to avoid accidental off-screen actions
   useEffect(() => {
     setSelectedIds([]);
     setIsConfirmingDelete(false);
   }, [activeCategory, showFavoritesOnly, searchQuery, dateFilter, showTrashOnly]);
 
+  // Reset confirmation state when selected items change
+  useEffect(() => {
+    setIsConfirmingDelete(false);
+  }, [selectedIds]);
+
   // Filter entries based on search, category, favorite, date, and trash status
+  // Calculate matching logins for current tab
+  const matchingCount = (isExtension && currentTabDomain)
+    ? entries.filter(entry => !entry.isInTrash && entry.website && domainsMatch(entry.website, currentTabDomain)).length
+    : 0;
+
   const filteredEntries = entries.filter((entry) => {
     // 1. Trash filter
     if (showTrashOnly) {
       if (!entry.isInTrash) return false;
     } else {
       if (entry.isInTrash) return false;
+
+      // 1b. Domain filter (for extension context matching active tab)
+      if (isExtension && isDomainFiltered && currentTabDomain) {
+        if (!entry.website || !domainsMatch(entry.website, currentTabDomain)) {
+          return false;
+        }
+      }
 
       // 2. Favorite filter
       if (showFavoritesOnly && !entry.isFavorite) {
@@ -195,6 +234,27 @@ export default function VaultPage() {
     }
   };
 
+  const handleCloneEntry = async (entry) => {
+    try {
+      const clonedData = {
+        title: `${entry.title} (Clone)`,
+        website: entry.website || '',
+        category: entry.category || 'General',
+        username: entry.username || '',
+        password: entry.password || '',
+        notes: entry.notes || ''
+      };
+      
+      const clonedEntry = await addEntry(clonedData);
+      if (clonedEntry) {
+        setEditingEntry(clonedEntry);
+      }
+    } catch (err) {
+      console.error('Failed to clone entry:', err);
+      alert('Failed to clone entry');
+    }
+  };
+
   const handleToggleSelectEntry = (id) => {
     setSelectedIds(prev => 
       prev.includes(id) 
@@ -274,6 +334,7 @@ export default function VaultPage() {
     setActiveCategory(cat);
     setShowFavoritesOnly(false);
     setShowTrashOnly(false);
+    setIsDomainFiltered(false);
     setCurrentView('vault');
     setIsMobileSidebarOpen(false);
   };
@@ -281,6 +342,7 @@ export default function VaultPage() {
   const handleSelectFavorites = () => {
     setShowFavoritesOnly(true);
     setShowTrashOnly(false);
+    setIsDomainFiltered(false);
     setCurrentView('vault');
     setIsMobileSidebarOpen(false);
   };
@@ -288,6 +350,7 @@ export default function VaultPage() {
   const handleSelectTrash = () => {
     setShowTrashOnly(true);
     setShowFavoritesOnly(false);
+    setIsDomainFiltered(false);
     setCurrentView('vault');
     setIsMobileSidebarOpen(false);
   };
@@ -297,6 +360,7 @@ export default function VaultPage() {
     setShowFavoritesOnly(false);
     setShowTrashOnly(false);
     setSearchQuery('');
+    setIsDomainFiltered(false);
     setCurrentView('vault');
   };
 
@@ -331,6 +395,40 @@ export default function VaultPage() {
         <div className="flex-1 overflow-y-auto min-h-0 flex flex-col p-4 scrollbar-thin">
           {currentView === 'vault' && (
             <div className="flex flex-col flex-1 min-h-0">
+              {/* Notification Banner */}
+              {currentTabDomain && matchingCount > 0 && (
+                <div className="mb-3 p-2.5 rounded-xl border border-accent-teal/20 bg-accent-teal/5 flex items-center justify-between text-xs transition-all duration-300">
+                  <div className="flex items-center gap-2 text-accent-teal">
+                    <div className="w-5 h-5 rounded-full bg-accent-teal/15 flex items-center justify-center shrink-0">
+                      <Shield className="w-3.5 h-3.5 text-accent-teal" />
+                    </div>
+                    <span className="font-semibold text-text-primary">
+                      {isDomainFiltered 
+                        ? `Showing logins for ${currentTabDomain}` 
+                        : `Logins found for ${currentTabDomain}`}
+                    </span>
+                  </div>
+                  {isDomainFiltered ? (
+                    <button
+                      onClick={() => setIsDomainFiltered(false)}
+                      className="px-2.5 py-1 text-[10px] font-extrabold rounded-lg bg-surface-dark hover:bg-surface-hover text-text-secondary hover:text-white border border-border-dark transition-all cursor-pointer"
+                    >
+                      Show All
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setIsDomainFiltered(true);
+                      }}
+                      className="px-2.5 py-1 text-[10px] font-extrabold rounded-lg bg-accent-teal hover:bg-accent-teal/90 text-bg-dark transition-all cursor-pointer shadow-lg shadow-accent-teal/10"
+                    >
+                      View ({matchingCount})
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Search input */}
               <div className="relative mb-3 shrink-0">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-text-secondary" />
@@ -338,7 +436,10 @@ export default function VaultPage() {
                   type="text"
                   placeholder="Search accounts, domains..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setIsDomainFiltered(false);
+                  }}
                   className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-surface-dark border border-border-dark text-text-primary focus:outline-none focus:border-accent-teal placeholder-text-secondary transition-colors"
                 />
               </div>
@@ -376,6 +477,7 @@ export default function VaultPage() {
                   onOpenAddEntry={handleOpenAddForm}
                   selectedIds={[]} // disable multi-select in extension popup
                   onToggleSelectEntry={() => {}}
+                  onClone={handleCloneEntry}
                 />
               </div>
             </div>
@@ -498,6 +600,7 @@ export default function VaultPage() {
           searchQuery={searchQuery}
           setSearchQuery={(q) => {
             setSearchQuery(q);
+            setIsDomainFiltered(false);
             if (currentView !== 'vault') setCurrentView('vault');
           }}
           onOpenAddEntry={handleOpenAddForm}
@@ -630,6 +733,7 @@ export default function VaultPage() {
                 onOpenAddEntry={handleOpenAddForm}
                 selectedIds={selectedIds}
                 onToggleSelectEntry={handleToggleSelectEntry}
+                onClone={handleCloneEntry}
               />
             </div>
           )}
@@ -677,7 +781,6 @@ export default function VaultPage() {
               <button
                 onClick={handleDeleteSelectedPermanent}
                 disabled={isBulkDeleting}
-                onMouseLeave={() => setIsConfirmingDelete(false)}
                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
                   isConfirmingDelete 
                     ? 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700 font-semibold' 
@@ -707,7 +810,6 @@ export default function VaultPage() {
               <button
                 onClick={handleDeleteSelected}
                 disabled={isBulkDeleting}
-                onMouseLeave={() => setIsConfirmingDelete(false)}
                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
                   isConfirmingDelete 
                     ? 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700 font-semibold' 

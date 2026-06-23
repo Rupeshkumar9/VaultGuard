@@ -5,7 +5,7 @@ import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 import { isExtension } from '../../utils/platform';
 
-export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect }) {
+export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect, onClone }) {
   const { toggleFavorite, updateLastUsed, restoreEntry } = useVault();
   const { copy: copyUsername, isCopied: isUsernameCopied } = useClipboard(10000);
   const { copy: copyPassword, isCopied: isPasswordCopied } = useClipboard(10000);
@@ -29,6 +29,39 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
     updateLastUsed(entry._id);
     setShowCopyFeedback(true);
     setTimeout(() => setShowCopyFeedback(false), 2000);
+  };
+
+  const handleAutofill = (e) => {
+    e.stopPropagation();
+    setIsDropdownOpen(false);
+    if (isExtension) {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs && tabs[0]) {
+              chrome.tabs.sendMessage(tabs[0].id, {
+                action: 'AUTOFILL_CREDENTIALS',
+                username: entry.username,
+                password: entry.password
+              }, (response) => {
+                if (chrome.runtime.lastError) {
+                  console.error('Error sending message:', chrome.runtime.lastError);
+                  alert('Autofill failed: Content script not loaded yet. Reload the active tab page and try again.');
+                } else if (response && response.success) {
+                  updateLastUsed(entry._id);
+                  setShowCopyFeedback(true);
+                  setTimeout(() => setShowCopyFeedback(false), 2000);
+                } else {
+                  alert('No username/password input fields detected on the current page.');
+                }
+              });
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Failed to trigger autofill:', err);
+      }
+    }
   };
 
   const handleFavoriteClick = (e) => {
@@ -128,7 +161,13 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
                       setIsDropdownOpen(false);
                     }}
                   />
-                  <div className="absolute right-0 mt-1 w-32 rounded-lg bg-surface-dark border border-border-dark shadow-xl z-50 py-1 animate-fadeIn">
+                  <div className="absolute right-0 mt-1 w-36 rounded-lg bg-surface-dark border border-border-dark shadow-xl z-50 py-1 animate-fadeIn">
+                    <button
+                      onClick={handleAutofill}
+                      className="w-full px-3 py-1.5 text-[10px] font-semibold text-left text-text-primary hover:bg-surface-hover hover:text-accent-teal transition-colors flex items-center justify-between"
+                    >
+                      <span>Autofill Login</span>
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -149,6 +188,18 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
                       className="w-full px-3 py-1.5 text-[10px] font-semibold text-left text-text-primary hover:bg-surface-hover hover:text-accent-teal transition-colors flex items-center justify-between"
                     >
                       <span>Copy Password</span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsDropdownOpen(false);
+                        if (onClone) {
+                          onClone(entry);
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 text-[10px] font-semibold text-left text-text-primary hover:bg-surface-hover hover:text-accent-teal transition-colors flex items-center justify-between"
+                    >
+                      <span>Clone Login</span>
                     </button>
                   </div>
                 </>

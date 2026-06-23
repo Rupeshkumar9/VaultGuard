@@ -78,3 +78,32 @@ export const formatRelativeTime = (date) => {
   
   return formatDate(d);
 };
+
+/**
+ * Checks if two URLs/domains match, taking into account subdomains.
+ * @param {string} val1 - First URL or domain
+ * @param {string} val2 - Second URL or domain
+ * @returns {boolean} - True if domains match
+ */
+export const domainsMatch = (val1, val2) => {
+  if (!val1 || !val2) return false;
+  const d1 = getDomain(val1).toLowerCase().trim();
+  const d2 = getDomain(val2).toLowerCase().trim();
+  if (!d1 || !d2) return false;
+  if (d1 === d2) return true;
+  if (d1.endsWith('.' + d2) || d2.endsWith('.' + d1)) return true;
+  
+  const getBaseDomain = (domain) => {
+    const parts = domain.split('.');
+    if (parts.length <= 2) return domain;
+    const sls = ['com', 'co', 'net', 'org', 'gov', 'edu', 'ac', 'mil'];
+    const prev = parts[parts.length - 2];
+    if (sls.includes(prev) && parts.length > 2) {
+      return parts.slice(-3).join('.');
+    }
+    return parts.slice(-2).join('.');
+  };
+  
+  return getBaseDomain(d1) === getBaseDomain(d2);
+};
+
