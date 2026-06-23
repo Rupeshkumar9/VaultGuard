@@ -1,6 +1,7 @@
 import React, { createContext, useState, useRef, useContext, useEffect } from 'react';
 import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from '../services/crypto';
 import { useAuth } from './AuthContext';
+import { isExtension } from '../utils/platform';
 
 const CryptoContext = createContext(null);
 
@@ -8,17 +9,25 @@ export const CryptoProvider = ({ children }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const masterPasswordRef = useRef('');
   const masterKeyRef = useRef(null);
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, login, logout } = useAuth();
 
-  // If user logs out, lock the vault automatically
+  // If running in extension, sync unlock state with auth state
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (isExtension) {
+      setIsUnlocked(isAuthenticated);
+    }
+  }, [isAuthenticated]);
+
+  // If user logs out, lock the vault automatically (web/mobile only)
+  useEffect(() => {
+    if (!isExtension && !isAuthenticated) {
       lock();
     }
   }, [isAuthenticated]);
 
-  // Restore unlock state from sessionStorage on page refresh
+  // Restore unlock state from sessionStorage on page refresh (web/mobile only)
   useEffect(() => {
+    if (isExtension) return;
     const restoreSession = async () => {
       const savedPassword = sessionStorage.getItem('vaultguard_session_master_password');
       if (savedPassword && isAuthenticated && user?.email) {
@@ -36,6 +45,11 @@ export const CryptoProvider = ({ children }) => {
   }, [isAuthenticated, user]);
 
   const unlock = async (password) => {
+    if (isExtension) {
+      // In extension popup, unlocking is done by logging in (which calls UNLOCK_VAULT in background)
+      return await login(user?.email || '', password);
+    }
+
     if (!password) return false;
     if (!user?.email) {
       console.warn('Unlock requested but user email is not available.');
@@ -53,7 +67,11 @@ export const CryptoProvider = ({ children }) => {
     }
   };
 
-  const lock = () => {
+  const lock = async () => {
+    if (isExtension) {
+      await logout();
+      return;
+    }
     masterPasswordRef.current = '';
     masterKeyRef.current = null;
     setIsUnlocked(false);
@@ -61,6 +79,9 @@ export const CryptoProvider = ({ children }) => {
   };
 
   const getMasterPassword = () => {
+    if (isExtension) {
+      return '';
+    }
     if (!isUnlocked || !masterPasswordRef.current) {
       throw new Error('Vault is locked. Please unlock first.');
     }
@@ -72,6 +93,14 @@ export const CryptoProvider = ({ children }) => {
    * @param {string} plaintext - Data to encrypt
    */
   const encryptData = async (plaintext) => {
+    if (isExtension) {
+      // In extension, encryption is delegated to the background worker
+      return {
+        encryptedData: plaintext,
+        iv: '',
+        salt: 'migrated',
+      };
+    }
     if (!isUnlocked || !masterKeyRef.current) {
       throw new Error('Vault is locked. Please unlock first.');
     }
@@ -89,6 +118,10 @@ export const CryptoProvider = ({ children }) => {
    * @param {string} salt - Base64 salt (or 'migrated' sentinel)
    */
   const decryptData = async (encryptedData, iv, salt) => {
+    if (isExtension) {
+      // In extension, data from background is already decrypted
+      return encryptedData;
+    }
     if (!isUnlocked) {
       throw new Error('Vault is locked. Please unlock first.');
     }

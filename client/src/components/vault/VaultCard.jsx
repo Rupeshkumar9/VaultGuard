@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
-import { Star, Copy, Check, ExternalLink, Shield, Globe, RefreshCw } from 'lucide-react';
+import { Star, Copy, Check, ExternalLink, Shield, Globe, RefreshCw, Info, MoreHorizontal } from 'lucide-react';
 import { getFaviconUrl, getDomain, formatRelativeTime } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
+import { isExtension } from '../../utils/platform';
 
 export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect }) {
   const { toggleFavorite, updateLastUsed, restoreEntry } = useVault();
   const { copy: copyUsername, isCopied: isUsernameCopied } = useClipboard(10000);
   const { copy: copyPassword, isCopied: isPasswordCopied } = useClipboard(10000);
   const [imageError, setImageError] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [showCopyFeedback, setShowCopyFeedback] = useState(false);
 
   const domain = entry.website ? getDomain(entry.website) : '';
   const favicon = domain ? getFaviconUrl(entry.website) : null;
@@ -16,12 +19,16 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
   const handleCopyUsername = (e) => {
     e.stopPropagation();
     copyUsername(entry.username);
+    setShowCopyFeedback(true);
+    setTimeout(() => setShowCopyFeedback(false), 2000);
   };
 
   const handleCopyPassword = (e) => {
     e.stopPropagation();
     copyPassword(entry.password);
     updateLastUsed(entry._id);
+    setShowCopyFeedback(true);
+    setTimeout(() => setShowCopyFeedback(false), 2000);
   };
 
   const handleFavoriteClick = (e) => {
@@ -41,6 +48,128 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect 
   const handleLinkClick = (e) => {
     e.stopPropagation();
   };
+
+  if (isExtension) {
+    return (
+      <div 
+        onClick={() => onSelect(entry)}
+        className="flex items-center justify-between p-3 rounded-xl bg-surface-dark border border-border-dark hover:border-accent-teal/30 hover:bg-surface-hover/80 transition-all duration-200 cursor-pointer select-none"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1 text-left">
+          {/* Avatar circle / icon */}
+          {favicon && !imageError ? (
+            <img 
+              src={favicon} 
+              alt=""
+              onError={() => setImageError(true)}
+              className="w-8 h-8 rounded-lg bg-bg-dark border border-border-dark p-1 shrink-0 object-contain"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-lg bg-bg-dark border border-border-dark flex items-center justify-center shrink-0">
+              {entry.title ? (
+                <span className="text-xs font-bold text-accent-teal uppercase">
+                  {entry.title.charAt(0)}
+                </span>
+              ) : (
+                <Shield className="w-4 h-4 text-accent-teal/70" />
+              )}
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <h4 className="font-bold text-text-primary text-xs truncate">
+              {entry.title}
+            </h4>
+            <p className="text-[10px] text-text-secondary truncate mt-0.5">
+              {entry.username || <span className="italic opacity-40">none</span>}
+            </p>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+          {entry.isInTrash ? (
+            <button
+              onClick={handleRestore}
+              title="Restore Entry"
+              className="p-1.5 rounded-lg border border-border-dark bg-bg-dark text-accent-teal hover:bg-accent-teal/10 hover:border-accent-teal/30 transition-all active:scale-90 flex items-center justify-center cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDropdownOpen(!isDropdownOpen);
+                }}
+                title="Copy Options"
+                className={`p-1.5 rounded-lg border transition-all active:scale-90 flex items-center justify-center cursor-pointer ${
+                  isDropdownOpen 
+                    ? 'bg-accent-glow border-accent-teal/30 text-accent-teal'
+                    : 'bg-bg-dark border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                }`}
+              >
+                {showCopyFeedback ? (
+                  <Check className="w-3.5 h-3.5 text-accent-teal" />
+                ) : (
+                  <MoreHorizontal className="w-3.5 h-3.5" />
+                )}
+              </button>
+
+              {/* Dropdown Menu */}
+              {isDropdownOpen && (
+                <>
+                  {/* Invisible backdrop to close the dropdown */}
+                  <div 
+                    className="fixed inset-0 z-40 cursor-default"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsDropdownOpen(false);
+                    }}
+                  />
+                  <div className="absolute right-0 mt-1 w-32 rounded-lg bg-surface-dark border border-border-dark shadow-xl z-50 py-1 animate-fadeIn">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyUsername(e);
+                        setIsDropdownOpen(false);
+                      }}
+                      disabled={!entry.username}
+                      className="w-full px-3 py-1.5 text-[10px] font-semibold text-left text-text-primary hover:bg-surface-hover hover:text-accent-teal transition-colors flex items-center justify-between disabled:opacity-40 disabled:hover:text-text-primary disabled:hover:bg-transparent"
+                    >
+                      <span>Copy Email</span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyPassword(e);
+                        setIsDropdownOpen(false);
+                      }}
+                      className="w-full px-3 py-1.5 text-[10px] font-semibold text-left text-text-primary hover:bg-surface-hover hover:text-accent-teal transition-colors flex items-center justify-between"
+                    >
+                      <span>Copy Password</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(entry);
+            }}
+            title="View Details"
+            className="p-1.5 rounded-lg border border-border-dark bg-bg-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all active:scale-90 flex items-center justify-center cursor-pointer"
+          >
+            <Info className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 

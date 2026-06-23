@@ -386,6 +386,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           const decryptedList = [];
+          const legacyEntries = [];
 
           for (const entry of rawEntries) {
             try {
@@ -395,6 +396,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   plaintext = await decryptWithKey(entry.encryptedData, entry.iv, masterKey);
                 } else {
                   plaintext = await decryptLegacy(entry.encryptedData, entry.iv, entry.salt, session.masterPassword);
+                  legacyEntries.push({ ...entry, plaintext });
                 }
                 const sensitive = JSON.parse(plaintext);
                 decryptedList.push({
@@ -422,6 +424,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               });
             }
           }
+
+          // Trigger background migration for legacy entries if any exist
+          if (legacyEntries.length > 0) {
+            (async () => {
+              console.log(`[Migration] Starting background migration for ${legacyEntries.length} entries...`);
+              let migratedCount = 0;
+              for (const entry of legacyEntries) {
+                try {
+                  const encrypted = await encryptWithKey(entry.plaintext, masterKey);
+                  const updatedEntryData = {
+                    title: entry.title,
+                    website: entry.website,
+                    category: entry.category || 'General',
+                    encryptedData: encrypted.encryptedData,
+                    iv: encrypted.iv,
+                    salt: 'migrated',
+                    notes: ''
+                  };
+                  await apiRequest(`/vault/${entry._id}`, 'PUT', updatedEntryData);
+                  migratedCount++;
+                } catch (err) {
+                  console.error(`[Migration] Failed to migrate entry ${entry.title}:`, err);
+                }
+              }
+              if (migratedCount > 0) {
+                console.log(`[Migration] Successfully migrated ${migratedCount} entries. Syncing vault...`);
+                await syncVault().catch(err => console.error('Sync failed after migration:', err));
+              }
+            })();
+          }
+
           return { success: true, entries: decryptedList };
         }
         case 'GET_MATCHING_CREDENTIALS': {
@@ -554,6 +587,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return { success: true, entry: updateRes.data };
           }
           throw new Error(updateRes.message || 'Failed to update credential.');
+        }
+        case 'DELETE_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['masterPassword']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+          const { id } = message;
+          const deleteRes = await apiRequest(`/vault/${id}`, 'DELETE');
+          if (deleteRes.success) {
+            await syncVault();
+            return { success: true };
+          }
+          throw new Error(deleteRes.message || 'Failed to delete credential.');
+        }
+        case 'TOGGLE_FAVORITE': {
+          const session = await chrome.storage.session.get(['masterPassword']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+          const { id } = message;
+          const favRes = await apiRequest(`/vault/${id}/favorite`, 'PATCH');
+          if (favRes.success) {
+            await syncVault();
+            return { success: true, entry: favRes.data };
+          }
+          throw new Error(favRes.message || 'Failed to toggle favorite.');
         }
         case 'SET_PENDING_CREDENTIAL': {
           const { username, password, website, title } = message.data;

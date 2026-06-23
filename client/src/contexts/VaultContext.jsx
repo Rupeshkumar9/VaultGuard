@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { useCrypto } from './CryptoContext';
 import { localDb } from '../services/localDb';
 import { vaultBridge } from '../services/vaultBridge';
-import { isNative } from '../utils/platform';
+import { isNative, isExtension } from '../utils/platform';
 
 const VaultContext = createContext(null);
 
@@ -15,6 +15,9 @@ export const VaultProvider = ({ children }) => {
 
   // Helper to decrypt a single raw entry from the API
   const decryptEntry = useCallback(async (entry) => {
+    if (isExtension) {
+      return entry;
+    }
     try {
       if (!entry.encryptedData || !entry.iv || !entry.salt) {
         return {
@@ -49,6 +52,7 @@ export const VaultProvider = ({ children }) => {
 
   // Load and decrypt cached entries from IndexedDB immediately upon unlock (mobile only)
   useEffect(() => {
+    if (isExtension) return;
     const loadCachedEntries = async () => {
       if (isUnlocked) {
         if (isNative) {
@@ -73,6 +77,7 @@ export const VaultProvider = ({ children }) => {
 
   // Automatically sync active entries to the Capacitor native bridge when entries update
   useEffect(() => {
+    if (isExtension) return;
     const syncAndVerify = async () => {
       if (isUnlocked) {
         if (entries.length > 0) {
@@ -91,6 +96,7 @@ export const VaultProvider = ({ children }) => {
 
   // Helper to migrate legacy ciphers (with individual salts) to the new single-key format in the background
   const triggerBackgroundMigration = useCallback(async (decryptedList) => {
+    if (isExtension) return;
     const legacyEntries = decryptedList.filter(entry => entry.salt && entry.salt !== 'migrated');
     if (legacyEntries.length === 0) return;
 
@@ -150,6 +156,16 @@ export const VaultProvider = ({ children }) => {
     setIsLoading(true);
     setError(null);
     try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({ action: 'GET_ENTRIES' });
+        if (response.success && response.entries) {
+          setEntries(response.entries);
+        } else {
+          throw new Error(response.error || 'Failed to fetch extension entries');
+        }
+        return;
+      }
+
       const response = await api.get('/vault?trash=all');
       if (response.success && response.data) {
         // Save encrypted data to IndexedDB cache (mobile only)
@@ -173,13 +189,28 @@ export const VaultProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [isUnlocked, decryptEntry]);
+  }, [isUnlocked, decryptEntry, triggerBackgroundMigration]);
 
   // Add a new vault entry
   const addEntry = async (entryData, skipFetch = false) => {
     if (!isUnlocked) throw new Error('Vault is locked');
     setIsLoading(true);
     try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'SAVE_CREDENTIAL',
+          data: entryData
+        });
+        if (response.success && response.entry) {
+          if (!skipFetch) {
+            await fetchEntries();
+          }
+          return response.entry;
+        } else {
+          throw new Error(response.error || 'Failed to save credential in extension.');
+        }
+      }
+
       const { title, website, category, username, password, notes } = entryData;
       
       // Serialize and encrypt the sensitive payload client-side
@@ -217,6 +248,19 @@ export const VaultProvider = ({ children }) => {
     if (!isUnlocked) throw new Error('Vault is locked');
     setIsLoading(true);
     try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'UPDATE_CREDENTIAL',
+          data: { id, ...entryData }
+        });
+        if (response.success && response.entry) {
+          await fetchEntries();
+          return response.entry;
+        } else {
+          throw new Error(response.error || 'Failed to update credential in extension.');
+        }
+      }
+
       const { title, website, category, username, password, notes, isFavorite } = entryData;
       
       // Serialize and encrypt the sensitive payload
@@ -251,6 +295,23 @@ export const VaultProvider = ({ children }) => {
   // Toggle favorite status
   const toggleFavorite = async (id) => {
     try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'TOGGLE_FAVORITE',
+          id
+        });
+        if (response.success && response.entry) {
+          setEntries(prev =>
+            prev.map(entry =>
+              entry._id === id ? { ...entry, isFavorite: response.entry.isFavorite } : entry
+            )
+          );
+          return response.entry;
+        } else {
+          throw new Error(response.error || 'Failed to toggle favorite in extension.');
+        }
+      }
+
       const response = await api.patch(`/vault/${id}/favorite`);
       if (response.success && response.data) {
         setEntries(prev =>
@@ -287,6 +348,19 @@ export const VaultProvider = ({ children }) => {
   const deleteEntry = async (id) => {
     setIsLoading(true);
     try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'DELETE_CREDENTIAL',
+          id
+        });
+        if (response.success) {
+          setEntries(prev => prev.filter(entry => entry._id !== id));
+        } else {
+          throw new Error(response.error || 'Failed to delete credential in extension.');
+        }
+        return;
+      }
+
       const response = await api.delete(`/vault/${id}`);
       if (response.success) {
         setEntries(prev =>

@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { api, setToken, clearToken } from '../services/api';
 import { localDb } from '../services/localDb';
-import { isNative } from '../utils/platform';
+import { isNative, isExtension } from '../utils/platform';
 
 const AuthContext = createContext(null);
 const AUTH_CACHE_KEY = 'vaultguard_cached_user';
@@ -55,6 +55,30 @@ export const AuthProvider = ({ children }) => {
   // Use cached user metadata immediately, then refresh the real server session in the background.
   useEffect(() => {
     let isMounted = true;
+
+    const checkExtensionSession = async () => {
+      try {
+        const response = await chrome.runtime.sendMessage({ action: 'GET_STATUS' });
+        if (!isMounted) return;
+        if (response && response.isUnlocked && response.user) {
+          setUser(response.user);
+          setIsAuthenticated(true);
+        } else {
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+      } catch (err) {
+        console.error('Failed to query extension background session:', err);
+        if (isMounted) {
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
 
     const loadCachedProfile = async () => {
       if (!cachedUser || !isNative) return;
@@ -127,6 +151,13 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
+    if (isExtension) {
+      checkExtensionSession();
+      return () => {
+        isMounted = false;
+      };
+    }
+
     loadCachedProfile();
     checkSession();
 
@@ -138,6 +169,22 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     setIsLoading(true);
     try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'UNLOCK_VAULT',
+          email,
+          masterPassword: password,
+          rememberVault: true,
+        });
+        if (response.success) {
+          setUser(response.user);
+          setIsAuthenticated(true);
+          return response;
+        } else {
+          throw new Error(response.error || 'Invalid credentials.');
+        }
+      }
+
       const response = await api.post('/auth/login', { email, password });
       if (response.success) {
         setToken(response.token);
@@ -160,6 +207,25 @@ export const AuthProvider = ({ children }) => {
   const register = async (email, password, masterPasswordHint) => {
     setIsLoading(true);
     try {
+      if (isExtension) {
+        const response = await api.post('/auth/register', { 
+          email, 
+          password, 
+          masterPasswordHint 
+        });
+        if (response.success) {
+          await chrome.runtime.sendMessage({
+            action: 'UNLOCK_VAULT',
+            email,
+            masterPassword: password,
+            rememberVault: true,
+          });
+          setUser(response.user);
+          setIsAuthenticated(true);
+          return response;
+        }
+      }
+
       const response = await api.post('/auth/register', { 
         email, 
         password, 
@@ -186,7 +252,11 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     setIsLoading(true);
     try {
-      await api.post('/auth/logout');
+      if (isExtension) {
+        await chrome.runtime.sendMessage({ action: 'LOCK_VAULT' });
+      } else {
+        await api.post('/auth/logout');
+      }
     } catch (error) {
       console.error('Logout request failed:', error);
     } finally {

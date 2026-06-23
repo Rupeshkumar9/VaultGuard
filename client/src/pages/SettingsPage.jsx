@@ -9,17 +9,47 @@ import {
   Info,
   Check,
   AlertTriangle,
-  Upload
+  Upload,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useVault } from '../contexts/VaultContext';
 import { useCrypto } from '../contexts/CryptoContext';
+import { isExtension } from '../utils/platform';
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { entries, addEntry, fetchEntries, deleteEntry } = useVault();
   const { isUnlocked, decryptData } = useCrypto();
   const [isExportingDecrypted, setIsExportingDecrypted] = useState(false);
+
+  // Sync state for extensions
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState(false);
+  const [syncError, setSyncError] = useState('');
+
+  const handleSyncVault = async () => {
+    setIsSyncing(true);
+    setSyncError('');
+    setSyncSuccess(false);
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'SYNC_VAULT' });
+      if (response && response.success) {
+        await fetchEntries();
+        setSyncSuccess(true);
+        setTimeout(() => setSyncSuccess(false), 3000);
+      } else {
+        throw new Error(response?.error || 'Sync failed');
+      }
+    } catch (err) {
+      console.error('Failed to sync vault:', err);
+      setSyncError(err.message || 'Failed to sync vault.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const [isExportingEncrypted, setIsExportingEncrypted] = useState(false);
   const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
     return localStorage.getItem('vaultguard_lock_timeout') || '5';
@@ -374,6 +404,99 @@ export default function SettingsPage() {
     }
   };
 
+
+  if (isExtension) {
+    return (
+      <div className="space-y-4 text-left">
+        {/* Account Info */}
+        <div className="p-3.5 rounded-xl bg-surface-dark border border-border-dark space-y-3 shadow-md">
+          <div className="flex items-center gap-2 border-b border-border-dark/50 pb-2">
+            <User className="w-4 h-4 text-accent-teal" />
+            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Account Overview</h3>
+          </div>
+          <div className="space-y-2 text-xs">
+            <div>
+              <p className="text-[10px] text-text-secondary">Logged in Email</p>
+              <p className="font-semibold text-text-primary mt-0.5">{user?.email || 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-text-secondary">Vault Size</p>
+              <p className="font-semibold text-text-primary mt-0.5">{entries.length} credentials stored</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Security Preferences */}
+        <div className="p-3.5 rounded-xl bg-surface-dark border border-border-dark space-y-3 shadow-md">
+          <div className="flex items-center gap-2 border-b border-border-dark/50 pb-2">
+            <Lock className="w-4 h-4 text-accent-teal" />
+            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Security Preferences</h3>
+          </div>
+          
+          {/* Auto Lock timeout */}
+          <div className="space-y-1.5">
+            <label className="block text-[10px] font-semibold text-text-secondary">Auto-lock Inactivity Timeout</label>
+            <select
+              value={autoLockTimeout}
+              onChange={handleTimeoutChange}
+              className="w-full px-2.5 py-1.5 rounded-lg bg-bg-dark border border-border-dark text-text-primary text-xs focus:outline-none focus:border-accent-teal cursor-pointer"
+            >
+              <option value="1" className="bg-surface-dark">1 Minute</option>
+              <option value="5" className="bg-surface-dark">5 Minutes</option>
+              <option value="15" className="bg-surface-dark">15 Minutes</option>
+              <option value="30" className="bg-surface-dark">30 Minutes</option>
+              <option value="0" className="bg-surface-dark">Never Lock</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Vault Actions */}
+        <div className="p-3.5 rounded-xl bg-surface-dark border border-border-dark space-y-3 shadow-md">
+          <div className="flex items-center gap-2 border-b border-border-dark/50 pb-2">
+            <Settings className="w-4 h-4 text-accent-teal" />
+            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Vault Actions</h3>
+          </div>
+          <div className="flex flex-col gap-2">
+            {/* Sync Vault Now */}
+            <button
+              onClick={handleSyncVault}
+              disabled={isSyncing}
+              className="w-full py-2 px-3 rounded-lg bg-bg-dark border border-border-dark hover:border-accent-teal/30 hover:bg-surface-hover text-left transition-all active:scale-[0.98] cursor-pointer text-xs font-semibold text-text-primary flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <RefreshCw className={`w-3.5 h-3.5 text-accent-teal ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Syncing Vault...' : 'Sync Vault Now'}</span>
+              </div>
+              {syncSuccess && <span className="text-[10px] text-accent-teal font-bold">Success ✓</span>}
+              {syncError && <span className="text-[10px] text-red-400 font-bold truncate max-w-[120px]">Failed ⚠️</span>}
+            </button>
+
+            {/* Go to Web Dashboard */}
+            <button
+              onClick={() => window.open('https://vault-guard-xi.vercel.app/', '_blank')}
+              className="w-full py-2 px-3 rounded-lg bg-bg-dark border border-border-dark hover:border-accent-teal/30 hover:bg-surface-hover text-left transition-all active:scale-[0.98] cursor-pointer text-xs font-semibold text-text-primary flex items-center gap-2"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-accent-teal" />
+              <span>Go to Web Dashboard</span>
+            </button>
+          </div>
+          {syncError && (
+            <p className="text-[9px] text-red-400 mt-1 font-medium leading-snug">
+              ⚠️ {syncError}
+            </p>
+          )}
+        </div>
+
+        {/* Log Out Button */}
+        <button
+          onClick={logout}
+          className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+        >
+          <span>Log Out of Vault</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 text-left">

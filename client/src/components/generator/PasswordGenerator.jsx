@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Copy, Check, RefreshCw, Info, Lock } from 'lucide-react';
 import { useClipboard } from '../../hooks/useClipboard';
+import { isExtension } from '../../utils/platform';
 
 export default function PasswordGenerator() {
   const [password, setPassword] = useState('');
@@ -109,6 +110,128 @@ export default function PasswordGenerator() {
   };
 
   const strength = getStrength();
+
+  if (isExtension) {
+    return (
+      <div className="space-y-3.5 text-left">
+        {/* Main Password Output Card */}
+        <div className="p-3 bg-surface-dark border border-border-dark rounded-xl space-y-3 shadow-md">
+          <div className="flex gap-2">
+            <div className="flex-1 px-3 py-2 rounded-lg bg-bg-dark border border-border-dark font-mono text-xs text-text-primary tracking-wider break-all select-all flex items-center min-h-[40px]">
+              {password}
+            </div>
+            <button
+              onClick={() => copy(password)}
+              disabled={!password || password.startsWith('Select')}
+              className={`p-2 rounded-lg border transition-all active:scale-[0.97] flex items-center justify-center shrink-0 cursor-pointer ${isCopied
+                  ? 'bg-accent-glow border-accent-teal/30 text-accent-teal font-medium'
+                  : 'bg-bg-dark border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                }`}
+            >
+              {isCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={generate}
+              title="Regenerate"
+              className="p-2 rounded-lg border border-border-dark bg-bg-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all active:rotate-90 shrink-0"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Strength Meter Bar */}
+          {strength.entropy && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-text-secondary font-medium">Strength:</span>
+                <span className={`font-bold ${strength.text}`}>{strength.label}</span>
+              </div>
+
+              <div className="h-1.5 w-full bg-bg-dark border border-border-dark rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 ease-out ${strength.color}`}
+                  style={{ width: `${strength.pct}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Options Panel */}
+        <div className="p-3 bg-surface-dark border border-border-dark rounded-xl space-y-3">
+          {/* Length Slider */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[10px] text-text-secondary">
+              <span>Password Length:</span>
+              <span className="font-mono font-bold text-text-primary">{length} characters</span>
+            </div>
+            <input
+              type="range"
+              min={8}
+              max={64}
+              value={length}
+              onChange={(e) => setLength(parseInt(e.target.value))}
+              className="w-full h-1 bg-bg-dark rounded appearance-none cursor-pointer accent-accent-teal border border-border-dark"
+            />
+          </div>
+
+          {/* Character Checklist */}
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border-dark/30">
+            <label className="flex items-center justify-between p-1 rounded hover:bg-bg-dark/40 cursor-pointer transition-colors text-[11px]">
+              <span className="text-text-primary text-[10px]">A-Z (Uppercase)</span>
+              <input
+                type="checkbox"
+                checked={uppercase}
+                onChange={(e) => setUppercase(e.target.checked)}
+                className="rounded border-border-dark bg-bg-dark text-accent-teal focus:ring-accent-teal/30 w-3.5 h-3.5 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between p-1 rounded hover:bg-bg-dark/40 cursor-pointer transition-colors text-[11px]">
+              <span className="text-text-primary text-[10px]">a-z (Lowercase)</span>
+              <input
+                type="checkbox"
+                checked={lowercase}
+                onChange={(e) => setLowercase(e.target.checked)}
+                className="rounded border-border-dark bg-bg-dark text-accent-teal focus:ring-accent-teal/30 w-3.5 h-3.5 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between p-1 rounded hover:bg-bg-dark/40 cursor-pointer transition-colors text-[11px]">
+              <span className="text-text-primary text-[10px]">0-9 (Numbers)</span>
+              <input
+                type="checkbox"
+                checked={numbers}
+                onChange={(e) => setNumbers(e.target.checked)}
+                className="rounded border-border-dark bg-bg-dark text-accent-teal focus:ring-accent-teal/30 w-3.5 h-3.5 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between p-1 rounded hover:bg-bg-dark/40 cursor-pointer transition-colors text-[11px]">
+              <span className="text-text-primary text-[10px]">!@#$ (Symbols)</span>
+              <input
+                type="checkbox"
+                checked={symbols}
+                onChange={(e) => setSymbols(e.target.checked)}
+                className="rounded border-border-dark bg-bg-dark text-accent-teal focus:ring-accent-teal/30 w-3.5 h-3.5 cursor-pointer"
+              />
+            </label>
+          </div>
+
+          {/* Avoid Ambiguous Characters */}
+          <label className="flex items-center justify-between p-2 rounded-lg bg-bg-dark/50 border border-border-dark/60 text-[10px] text-text-primary cursor-pointer hover:bg-bg-dark transition-colors">
+            <div className="text-left">
+              <span className="font-semibold">Avoid Ambiguous Characters</span>
+              <p className="text-[8px] text-text-secondary/60">Exclude O, 0, I, l, 1, |</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={excludeSimilar}
+              onChange={(e) => setExcludeSimilar(e.target.checked)}
+              className="rounded border-border-dark bg-bg-dark text-accent-teal focus:ring-accent-teal/30 w-3.5 h-3.5 cursor-pointer"
+            />
+          </label>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 text-left">

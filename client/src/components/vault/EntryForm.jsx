@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Shield, Key, Eye, EyeOff, RefreshCw, Check } from 'lucide-react';
 import { useVault } from '../../contexts/VaultContext';
+import { isExtension } from '../../utils/platform';
 
 const CATEGORIES = [
   'General',
@@ -119,10 +120,10 @@ export default function EntryForm({ entry, onClose }) {
       />
 
       {/* Form Container */}
-      <div className="relative w-full max-w-lg bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden transition-all transform scale-100 flex flex-col max-h-[90vh]">
+      <div className={`relative w-full max-w-lg bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden transition-all transform scale-100 flex flex-col ${isExtension ? 'max-h-[95vh]' : 'max-h-[90vh]'}`}>
         
         {/* Form Header */}
-        <div className="px-6 py-4 border-b border-border-dark/60 flex items-center justify-between">
+        <div className={`${isExtension ? 'px-4 py-2.5' : 'px-6 py-4'} border-b border-border-dark/60 flex items-center justify-between shrink-0`}>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-accent-glow flex items-center justify-center border border-accent-teal/30">
               <Shield className="w-4.5 h-4.5 text-accent-teal" />
@@ -141,7 +142,7 @@ export default function EntryForm({ entry, onClose }) {
         </div>
 
         {/* Form Content */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin text-left">
+        <form onSubmit={handleSubmit} className={`flex-1 overflow-y-auto ${isExtension ? 'p-4 space-y-3.5 scrollbar-none' : 'p-6 space-y-4 scrollbar-thin'} text-left`}>
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg text-xs font-medium">
               {error}
@@ -329,13 +330,13 @@ export default function EntryForm({ entry, onClose }) {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Store secure verification keys, recovery codes, or hints here..."
-              rows={4}
-              className="w-full px-4 py-2.5 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/30 transition-all text-sm resize-none scrollbar-thin"
+              rows={isExtension ? 2 : 4}
+              className={`w-full ${isExtension ? 'px-3 py-2 text-xs' : 'px-4 py-2.5 text-sm'} rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/30 transition-all resize-none scrollbar-thin`}
             />
           </div>
 
           {/* Footer Submit Button */}
-          <div className="pt-4 border-t border-border-dark/60 flex items-center justify-end gap-3 mt-6">
+          <div className={`pt-3 border-t border-border-dark/60 flex items-center justify-end gap-3 shrink-0 ${isExtension ? 'mt-3' : 'mt-6'}`}>
             <button
               type="button"
               onClick={onClose}

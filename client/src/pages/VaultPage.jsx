@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, X, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw } from 'lucide-react';
+import { Shield, Plus, Trash2, X, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw, Lock, Settings, Search } from 'lucide-react';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
 import VaultList from '../components/vault/VaultList';
@@ -10,8 +10,11 @@ import PasswordGenerator from '../components/generator/PasswordGenerator';
 import SettingsPage from './SettingsPage';
 import { useVault } from '../contexts/VaultContext';
 import { useAutoLock } from '../hooks/useAutoLock';
+import { useCrypto } from '../contexts/CryptoContext';
+import { isExtension } from '../utils/platform';
 
 export default function VaultPage() {
+  const { lock } = useCrypto();
   const { 
     entries, 
     isLoading, 
@@ -77,8 +80,19 @@ export default function VaultPage() {
       }
 
       // 3. Category filter
-      if (activeCategory !== 'All' && entry.category !== activeCategory) {
-        return false;
+      if (activeCategory !== 'All') {
+        if (activeCategory === 'Logins') {
+          const loginCats = ['Social Media', 'Email', 'General', 'Entertainment', 'Work'];
+          if (!loginCats.includes(entry.category)) return false;
+        } else if (activeCategory === 'Cards') {
+          const cardCats = ['Banking', 'Shopping'];
+          if (!cardCats.includes(entry.category)) return false;
+        } else if (activeCategory === 'Notes') {
+          const noteCats = ['Secure Notes', 'Notes', 'Other'];
+          if (!noteCats.includes(entry.category)) return false;
+        } else if (entry.category !== activeCategory) {
+          return false;
+        }
       }
     }
 
@@ -285,6 +299,149 @@ export default function VaultPage() {
     setSearchQuery('');
     setCurrentView('vault');
   };
+
+  if (isExtension) {
+    return (
+      <div className="flex flex-col h-screen w-full bg-bg-dark text-text-primary overflow-hidden font-sans select-none" style={{ width: '380px', height: '600px' }}>
+        {/* Header */}
+        <header className="flex items-center justify-between px-4 py-3 border-b border-border-dark bg-surface-dark shrink-0">
+          <div className="flex items-center gap-2">
+            <Shield className="w-5 h-5 text-accent-teal" />
+            <span className="font-extrabold text-base tracking-tight text-white">VaultGuard</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={handleOpenAddForm}
+              className="p-1 rounded-lg text-text-secondary hover:text-white hover:bg-surface-hover transition-colors cursor-pointer"
+              title="Add Item"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={lock}
+              className="p-1 rounded-lg text-text-secondary hover:text-white hover:bg-surface-hover transition-colors cursor-pointer"
+              title="Lock Vault"
+            >
+              <Lock className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
+
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col p-4 scrollbar-thin">
+          {currentView === 'vault' && (
+            <div className="flex flex-col flex-1 min-h-0">
+              {/* Search input */}
+              <div className="relative mb-3 shrink-0">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-text-secondary" />
+                <input
+                  type="text"
+                  placeholder="Search accounts, domains..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-surface-dark border border-border-dark text-text-primary focus:outline-none focus:border-accent-teal placeholder-text-secondary transition-colors"
+                />
+              </div>
+
+              {/* Category Pills scrollable horizontally */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-3 shrink-0 scrollbar-none">
+                {['All', 'Logins', 'Cards', 'Notes'].map((cat) => {
+                  const isActive = (cat === 'All' && activeCategory === 'All') || 
+                                   (cat === 'Logins' && activeCategory === 'Logins') || 
+                                   (cat === 'Cards' && activeCategory === 'Cards') || 
+                                   (cat === 'Notes' && activeCategory === 'Notes');
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => handleSelectCategory(cat)}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                        isActive 
+                          ? 'bg-accent-teal text-bg-dark font-extrabold' 
+                          : 'bg-surface-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover border border-border-dark'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Entries list */}
+              <div className="flex-1 overflow-y-auto scrollbar-thin min-h-0">
+                <VaultList 
+                  filteredEntries={sortedAndFilteredEntries}
+                  isLoading={isLoading}
+                  searchQuery={searchQuery}
+                  onSelectEntry={handleSelectEntry}
+                  onOpenAddEntry={handleOpenAddForm}
+                  selectedIds={[]} // disable multi-select in extension popup
+                  onToggleSelectEntry={() => {}}
+                />
+              </div>
+            </div>
+          )}
+
+          {currentView === 'generator' && <PasswordGenerator />}
+          {currentView === 'settings' && <SettingsPage />}
+        </div>
+
+        {/* Bottom Tab Bar */}
+        <nav className="flex items-center justify-around border-t border-border-dark bg-surface-dark py-2 shrink-0">
+          <button 
+            onClick={() => setCurrentView('vault')}
+            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+              currentView === 'vault' ? 'text-accent-teal' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            <span className="text-[10px] font-bold">Vault</span>
+          </button>
+          <button 
+            onClick={() => setCurrentView('generator')}
+            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+              currentView === 'generator' ? 'text-accent-teal' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span className="text-[10px] font-bold">Generator</span>
+          </button>
+          <button 
+            onClick={() => setCurrentView('settings')}
+            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+              currentView === 'settings' ? 'text-accent-teal' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span className="text-[10px] font-bold">Settings</span>
+          </button>
+        </nav>
+
+        {/* Modals (VaultDetail, EntryForm, editingEntry) */}
+        {selectedEntry && (
+          <VaultDetail 
+            entry={selectedEntry}
+            onClose={handleCloseDetail}
+            onEdit={handleEditEntry}
+            onDelete={handleDeleteEntry}
+            onRestore={handleRestoreEntry}
+          />
+        )}
+
+        {isAddingEntry && (
+          <EntryForm 
+            onClose={handleCloseAddForm}
+          />
+        )}
+
+        {editingEntry && (
+          <EntryForm 
+            entry={editingEntry}
+            onClose={handleCloseEditForm}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-bg-dark text-text-primary overflow-hidden">

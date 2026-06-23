@@ -1,6 +1,7 @@
 import React from 'react';
 import VaultCard from './VaultCard';
 import { Shield, Plus } from 'lucide-react';
+import { isExtension } from '../../utils/platform';
 
 export default function VaultList({ 
   filteredEntries, 
@@ -13,6 +14,22 @@ export default function VaultList({
 }) {
   
   if (isLoading && filteredEntries.length === 0) {
+    if (isExtension) {
+      return (
+        <div className="flex flex-col gap-2.5">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-[60px] rounded-xl bg-surface-dark/40 border border-border-dark/60 p-3 flex items-center gap-3 animate-pulse">
+              <div className="w-8 h-8 rounded-lg bg-surface-hover/80 shrink-0" />
+              <div className="space-y-1.5 flex-1">
+                <div className="h-3 bg-surface-hover/80 rounded w-1/3" />
+                <div className="h-2.5 bg-surface-hover/80 rounded w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -34,6 +51,7 @@ export default function VaultList({
       </div>
     );
   }
+
 
   if (filteredEntries.length === 0) {
     return (
@@ -67,7 +85,7 @@ export default function VaultList({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+    <div className={isExtension ? "flex flex-col gap-2.5" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"}>
       {filteredEntries.map((entry) => (
         <VaultCard 
           key={entry._id} 

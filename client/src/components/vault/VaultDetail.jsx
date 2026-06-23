@@ -16,6 +16,7 @@ import {
 import { getFaviconUrl, getDomain, formatDate } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
+import { isExtension } from '../../utils/platform';
 
 export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestore }) {
   const { toggleFavorite, updateLastUsed } = useVault();
@@ -55,10 +56,10 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
       />
 
       {/* Modal Container */}
-      <div className="relative w-full max-w-lg bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden transition-all transform scale-100 flex flex-col max-h-[90vh]">
+      <div className={`relative w-full max-w-lg bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden transition-all transform scale-100 flex flex-col ${isExtension ? 'max-h-[95vh]' : 'max-h-[90vh]'}`}>
         
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-border-dark/60 flex items-center justify-between">
+        <div className={`${isExtension ? 'px-4 py-2.5' : 'px-6 py-4'} border-b border-border-dark/60 flex items-center justify-between shrink-0`}>
           <div className="flex items-center gap-3">
             {favicon && !imageError ? (
               <img 
@@ -100,7 +101,7 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
         </div>
 
         {/* Modal Content */}
-        <div className="p-6 space-y-5 overflow-y-auto flex-1 scrollbar-thin text-left">
+        <div className={`${isExtension ? 'p-4 space-y-3.5 scrollbar-none' : 'p-6 space-y-5 scrollbar-thin'} overflow-y-auto flex-1 text-left`}>
           
           {/* Category & Website */}
           <div className="grid grid-cols-2 gap-4">
@@ -196,7 +197,7 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
             <textarea
               readOnly
               value={entry.notes || ''}
-              rows={4}
+              rows={isExtension ? 3 : 4}
               className="w-full px-3 py-2 rounded-lg bg-bg-dark border border-border-dark text-text-primary text-xs focus:outline-none resize-none scrollbar-thin"
               placeholder="No additional notes"
             />
@@ -216,7 +217,7 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
         </div>
 
         {/* Modal Footer (Edit/Delete Actions) */}
-        <div className="px-6 py-4 border-t border-border-dark/60 bg-bg-dark/20 flex items-center justify-between gap-3">
+        <div className={`${isExtension ? 'px-4 py-2.5' : 'px-6 py-4'} border-t border-border-dark/60 bg-bg-dark/20 flex items-center justify-between gap-3 shrink-0`}>
           {/* Delete Button with inline confirmation */}
           <button
             onClick={handleDeleteClick}
