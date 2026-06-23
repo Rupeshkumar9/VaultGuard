@@ -44,7 +44,7 @@ export default function LoginPage() {
       
       if (res && res.success) {
         // 2. Cache master password in CryptoContext to enable client-side encryption
-        unlock(password);
+        await unlock(password);
         
         // 3. Redirect to the main vault page
         navigate('/');

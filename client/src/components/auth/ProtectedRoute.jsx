@@ -26,14 +26,14 @@ export const ProtectedRoute = ({ children }) => {
 
   // 3. If logged in but the vault is locked (e.g. after a page reload), show the unlock screen
   if (!isUnlocked) {
-    const handleUnlockSubmit = (e) => {
+    const handleUnlockSubmit = async (e) => {
       e.preventDefault();
       setError('');
       try {
         // Unlock caches password in context memory
-        const success = unlock(unlockPassword);
+        const success = await unlock(unlockPassword);
         if (!success) {
-          setError('Master password cannot be empty.');
+          setError('Failed to unlock vault. Check your master password.');
         }
       } catch (err) {
         setError('Failed to unlock vault.');

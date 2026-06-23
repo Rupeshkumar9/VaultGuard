@@ -1,4 +1,4 @@
-import { decrypt, encrypt } from './crypto-helper.js';
+import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from './crypto-helper.js';
 import { localDb } from './local-db.js';
 
 const DEFAULT_SERVER_URL = 'http://localhost:5000';
@@ -177,6 +177,20 @@ function getBaseDomain(hostname) {
   return parts.slice(-2).join('.');
 }
 
+// Helper to derive master key from stored master password and user email
+async function getMasterKey(masterPassword) {
+  const session = await chrome.storage.session.get(['user']);
+  let email = session.user?.email;
+  if (!email) {
+    const settings = await chrome.storage.local.get(['cachedUser', 'user']);
+    email = settings.user?.email || settings.cachedUser?.email;
+  }
+  if (!email) {
+    throw new Error('User email not found in session or cache.');
+  }
+  return await deriveMasterKey(masterPassword, email);
+}
+
 // ──── Main Message Router ────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   resetAutoLockTimer();
@@ -219,7 +233,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               
               if (testEntry) {
                 // Try to decrypt the entry to verify password
-                await decrypt(testEntry.encryptedData, testEntry.iv, testEntry.salt, masterPassword);
+                if (testEntry.salt === 'migrated' || testEntry.salt === 'none' || !testEntry.salt) {
+                  const masterKey = await deriveMasterKey(masterPassword, email);
+                  await decryptWithKey(testEntry.encryptedData, testEntry.iv, masterKey);
+                } else {
+                  await decryptLegacy(testEntry.encryptedData, testEntry.iv, testEntry.salt, masterPassword);
+                }
                 unlockedLocally = true;
                 userToUse = cachedUser;
               }
@@ -358,12 +377,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await chrome.storage.session.set({ encryptedEntries: rawEntries });
           }
           
+          let masterKey;
+          try {
+            masterKey = await getMasterKey(session.masterPassword);
+          } catch (err) {
+            console.error('Failed to derive master key for GET_ENTRIES:', err);
+            return { success: false, error: 'Failed to derive master key.' };
+          }
+
           const decryptedList = [];
 
           for (const entry of rawEntries) {
             try {
               if (entry.encryptedData && entry.iv && entry.salt) {
-                const plaintext = await decrypt(entry.encryptedData, entry.iv, entry.salt, session.masterPassword);
+                let plaintext;
+                if (entry.salt === 'migrated' || entry.salt === 'none' || !entry.salt) {
+                  plaintext = await decryptWithKey(entry.encryptedData, entry.iv, masterKey);
+                } else {
+                  plaintext = await decryptLegacy(entry.encryptedData, entry.iv, entry.salt, session.masterPassword);
+                }
                 const sensitive = JSON.parse(plaintext);
                 decryptedList.push({
                   ...entry,
@@ -410,6 +442,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           const matching = [];
 
+          let masterKey;
+          try {
+            masterKey = await getMasterKey(session.masterPassword);
+          } catch (err) {
+            console.error('Failed to derive master key for GET_MATCHING_CREDENTIALS:', err);
+            return { success: false, error: 'Failed to derive master key.' };
+          }
+
           for (const entry of rawEntries) {
             const entryDomain = getDomain(entry.website);
             if (!entryDomain) continue;
@@ -422,7 +462,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             
             if (isMatch) {
               try {
-                const plaintext = await decrypt(entry.encryptedData, entry.iv, entry.salt, session.masterPassword);
+                let plaintext;
+                if (entry.salt === 'migrated' || entry.salt === 'none' || !entry.salt) {
+                  plaintext = await decryptWithKey(entry.encryptedData, entry.iv, masterKey);
+                } else {
+                  plaintext = await decryptLegacy(entry.encryptedData, entry.iv, entry.salt, session.masterPassword);
+                }
                 const sensitive = JSON.parse(plaintext);
                 matching.push({
                   id: entry._id,
@@ -447,15 +492,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const { title, website, username, password, category, notes } = message.data;
           const sensitivePayload = JSON.stringify({ username, password, notes: notes || '' });
           
+          let masterKey;
+          try {
+            masterKey = await getMasterKey(session.masterPassword);
+          } catch (err) {
+            console.error('Failed to derive master key for SAVE_CREDENTIAL:', err);
+            return { success: false, error: 'Failed to derive master key.' };
+          }
+
           // Encrypt client-side
-          const encrypted = await encrypt(sensitivePayload, session.masterPassword);
+          const encrypted = await encryptWithKey(sensitivePayload, masterKey);
           const newEntryData = {
             title,
             website,
             category: category || 'General',
             encryptedData: encrypted.encryptedData,
             iv: encrypted.iv,
-            salt: encrypted.salt,
+            salt: 'migrated', // Sentinel value to satisfy required salt schema
             notes: ''
           };
 
@@ -476,14 +529,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const { id, title, website, username, password, category, notes } = message.data;
           const sensitivePayload = JSON.stringify({ username, password, notes: notes || '' });
           
-          const encrypted = await encrypt(sensitivePayload, session.masterPassword);
+          let masterKey;
+          try {
+            masterKey = await getMasterKey(session.masterPassword);
+          } catch (err) {
+            console.error('Failed to derive master key for UPDATE_CREDENTIAL:', err);
+            return { success: false, error: 'Failed to derive master key.' };
+          }
+
+          const encrypted = await encryptWithKey(sensitivePayload, masterKey);
           const updatedEntryData = {
             title,
             website,
             category: category || 'General',
             encryptedData: encrypted.encryptedData,
             iv: encrypted.iv,
-            salt: encrypted.salt,
+            salt: 'migrated', // Sentinel value
             notes: ''
           };
 

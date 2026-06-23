@@ -38,7 +38,13 @@ const base64ToBuffer = (base64) => {
  * @param {ArrayBuffer} salt - 16-byte random salt
  * @returns {Promise<CryptoKey>} - Derived CryptoKey
  */
-const deriveKey = async (password, salt) => {
+/**
+ * Derives an AES-GCM key from a master password and salt using PBKDF2.
+ * @param {string} password - The user's master password
+ * @param {ArrayBuffer} salt - 16-byte random salt
+ * @returns {Promise<CryptoKey>} - Derived CryptoKey
+ */
+export const deriveKey = async (password, salt) => {
   const passwordBuffer = stringToBuffer(password);
   
   // Import the raw password as a key-deriving-key
@@ -66,23 +72,30 @@ const deriveKey = async (password, salt) => {
 };
 
 /**
- * Encrypts plaintext data using a master password.
- * Generates a random salt and IV dynamically.
- * @param {string} plaintext - Data to encrypt
- * @param {string} password - Master password
- * @returns {Promise<{ encryptedData: string, iv: string, salt: string }>} - Base64 encoded outputs
+ * Derives the master vault key from password and user email.
+ * Email is hashed to create a standard 16-byte salt.
+ * @param {string} password - The master password
+ * @param {string} email - The user's email
+ * @returns {Promise<CryptoKey>} - Master key
  */
-export const encrypt = async (plaintext, password) => {
-  if (!plaintext) return { encryptedData: '', iv: '', salt: '' };
+export const deriveMasterKey = async (password, email) => {
+  if (!password || !email) throw new Error('Password and email are required to derive key.');
+  const emailBuffer = stringToBuffer(email.toLowerCase().trim());
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', emailBuffer);
+  const salt = hashBuffer.slice(0, 16); // First 16 bytes of SHA-256 hash
+  return deriveKey(password, salt);
+};
+
+/**
+ * Encrypts plaintext data using a pre-derived AES-GCM key.
+ * @param {string} plaintext - Data to encrypt
+ * @param {CryptoKey} key - Pre-derived AES-GCM key
+ * @returns {Promise<{ encryptedData: string, iv: string }>} - Base64 encoded outputs (no salt)
+ */
+export const encryptWithKey = async (plaintext, key) => {
+  if (!plaintext) return { encryptedData: '', iv: '' };
   
-  // 1. Generate secure random salt (16 bytes) and IV (12 bytes)
-  const salt = window.crypto.getRandomValues(new Uint8Array(16));
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  
-  // 2. Derive key from password and salt
-  const key = await deriveKey(password, salt);
-  
-  // 3. Encrypt the plaintext using AES-GCM
   const ciphertextBuffer = await window.crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
@@ -92,35 +105,55 @@ export const encrypt = async (plaintext, password) => {
     stringToBuffer(plaintext)
   );
   
-  // 4. Return base64 encoded results
   return {
     encryptedData: bufferToBase64(ciphertextBuffer),
     iv: bufferToBase64(iv),
-    salt: bufferToBase64(salt),
   };
 };
 
 /**
- * Decrypts ciphertext data using the master password and stored parameters.
+ * Decrypts ciphertext data using a pre-derived AES-GCM key.
+ * @param {string} encryptedDataBase64 - Base64 ciphertext
+ * @param {string} ivBase64 - Base64 IV
+ * @param {CryptoKey} key - Pre-derived AES-GCM key
+ * @returns {Promise<string>} - Plaintext string
+ */
+export const decryptWithKey = async (encryptedDataBase64, ivBase64, key) => {
+  if (!encryptedDataBase64) return '';
+  
+  const ciphertext = base64ToBuffer(encryptedDataBase64);
+  const iv = base64ToBuffer(ivBase64);
+  
+  const decryptedBuffer = await window.crypto.subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv: iv,
+    },
+    key,
+    ciphertext
+  );
+  
+  return bufferToString(decryptedBuffer);
+};
+
+/**
+ * Legacy decryption handler: derives key per-entry using stored salt.
+ * Used for unmigrated database entries.
  * @param {string} encryptedDataBase64 - Base64 ciphertext
  * @param {string} ivBase64 - Base64 IV
  * @param {string} saltBase64 - Base64 salt
  * @param {string} password - Master password
  * @returns {Promise<string>} - Plaintext string
  */
-export const decrypt = async (encryptedDataBase64, ivBase64, saltBase64, password) => {
+export const decryptLegacy = async (encryptedDataBase64, ivBase64, saltBase64, password) => {
   if (!encryptedDataBase64) return '';
   
   try {
-    // 1. Convert base64 inputs back to buffers
     const ciphertext = base64ToBuffer(encryptedDataBase64);
     const iv = base64ToBuffer(ivBase64);
     const salt = base64ToBuffer(saltBase64);
     
-    // 2. Re-derive the key using the same password and salt
     const key = await deriveKey(password, salt);
-    
-    // 3. Decrypt the ciphertext
     const decryptedBuffer = await window.crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
@@ -130,10 +163,9 @@ export const decrypt = async (encryptedDataBase64, ivBase64, saltBase64, passwor
       ciphertext
     );
     
-    // 4. Convert buffer back to plaintext string
     return bufferToString(decryptedBuffer);
   } catch (error) {
-    console.error('Decryption failed:', error);
-    throw new Error('Failed to decrypt data. Invalid master password or corrupted entry.');
+    console.error('Legacy decryption failed:', error);
+    throw new Error('Failed to decrypt data using legacy mode.');
   }
 };

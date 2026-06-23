@@ -96,6 +96,9 @@ function scanForInputs() {
       setupInputListeners(pair);
     }
   });
+
+  // Clean up and reposition overlays for SPA dynamically
+  repositionOverlays();
 }
 
 // Attach event listeners to input pairs
@@ -500,6 +503,12 @@ async function fetchMatchingLogins() {
 
 // ──── Initial Boot and Listeners ────
 async function init() {
+  // Do not run content script inside the VaultGuard application itself
+  if (document.querySelector('meta[name="vaultguard-app"]')) {
+    console.log('VaultGuard extension content script disabled on this app page.');
+    return;
+  }
+
   // Check if there is a pending credential from a previous page redirect
   await checkPendingCredentialOnLoad();
   
