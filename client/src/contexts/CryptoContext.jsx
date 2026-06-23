@@ -2,6 +2,8 @@ import React, { createContext, useState, useRef, useContext, useEffect } from 'r
 import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from '../services/crypto';
 import { useAuth } from './AuthContext';
 import { isExtension } from '../utils/platform';
+import { api } from '../services/api';
+import { localDb } from '../services/localDb';
 
 const CryptoContext = createContext(null);
 
@@ -56,13 +58,56 @@ export const CryptoProvider = ({ children }) => {
       return false;
     }
     try {
-      masterPasswordRef.current = password;
-      masterKeyRef.current = await deriveMasterKey(password, user.email);
-      setIsUnlocked(true);
-      sessionStorage.setItem('vaultguard_session_master_password', password);
-      return true;
+      // 1. Derive master key
+      const derivedKey = await deriveMasterKey(password, user.email);
+
+      // 2. Perform verification
+      let isVerified = false;
+
+      // Try local verification first if offline or we have cached ciphers
+      const cachedEntries = await localDb.getAllEntries();
+      const testEntry = cachedEntries.find(e => e.encryptedData && e.iv && e.salt);
+
+      if (testEntry) {
+        try {
+          if (testEntry.salt === 'migrated' || testEntry.salt === 'none' || !testEntry.salt) {
+            await decryptWithKey(testEntry.encryptedData, testEntry.iv, derivedKey);
+          } else {
+            await decryptLegacy(testEntry.encryptedData, testEntry.iv, testEntry.salt, password);
+          }
+          isVerified = true;
+        } catch (decryptErr) {
+          // Decryption failed. Since testEntry exists, the password must be incorrect.
+          console.error('Local verification failed. Wrong master password:', decryptErr);
+          return false;
+        }
+      }
+
+      // If not verified locally (e.g. no cached entries, or we are on web dashboard where IndexedDB cache doesn't exist), check with server
+      if (!isVerified) {
+        try {
+          const res = await api.post('/auth/login', { email: user.email, password });
+          if (res && res.success) {
+            isVerified = true;
+          }
+        } catch (serverErr) {
+          // Server auth failed.
+          console.error('Server verification failed:', serverErr);
+          return false;
+        }
+      }
+
+      if (isVerified) {
+        masterPasswordRef.current = password;
+        masterKeyRef.current = derivedKey;
+        setIsUnlocked(true);
+        sessionStorage.setItem('vaultguard_session_master_password', password);
+        return true;
+      }
+
+      return false;
     } catch (err) {
-      console.error('Failed to derive master key on unlock:', err);
+      console.error('Failed to unlock vault:', err);
       return false;
     }
   };
