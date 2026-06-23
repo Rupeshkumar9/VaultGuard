@@ -11,7 +11,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   build: {
-    outDir: path.resolve(__dirname, '../extension/react-dist'),
+    outDir: 'dist',
     emptyOutDir: true,
   },
   server: {
