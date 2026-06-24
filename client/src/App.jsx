@@ -12,6 +12,16 @@ import { isExtension, isNative } from './utils/platform';
 function App() {
   const RouterComponent = (isExtension || isNative) ? HashRouter : BrowserRouter;
 
+  // Auto-sync client's environment VITE_API_URL to extension background script
+  React.useEffect(() => {
+    if (isExtension && import.meta.env.VITE_API_URL) {
+      chrome.runtime.sendMessage({
+        action: 'SET_SERVER_URL',
+        serverUrl: import.meta.env.VITE_API_URL
+      }).catch(err => console.error('Failed to sync environment URL to background:', err));
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <CryptoProvider>

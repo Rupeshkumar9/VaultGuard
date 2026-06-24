@@ -10,7 +10,7 @@ export default function ServerStatus() {
 
     const checkStatus = async () => {
       try {
-        let apiBase = localStorage.getItem('vaultguard_api_base') || import.meta.env.VITE_API_URL || 'https://vaultguard-qi2y.onrender.com';
+        let apiBase = import.meta.env.VITE_API_URL || '';
         if (apiBase.endsWith('/')) {
           apiBase = apiBase.slice(0, -1);
         }

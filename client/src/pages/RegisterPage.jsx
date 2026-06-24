@@ -14,11 +14,6 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [showServerConfig, setShowServerConfig] = useState(false);
-  const [serverUrl, setServerUrl] = useState(() => {
-    return localStorage.getItem('vaultguard_api_base') || import.meta.env.VITE_API_URL || 'https://vaultguard-qi2y.onrender.com';
-  });
-  const [serverSaveSuccess, setServerSaveSuccess] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -27,20 +22,7 @@ export default function RegisterPage() {
     }
   }, [isAuthenticated, isAuthLoading, navigate]);
 
-  const handleSaveServer = (e) => {
-    e.preventDefault();
-    let cleanUrl = serverUrl.trim();
-    if (cleanUrl && !cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-      cleanUrl = 'https://' + cleanUrl;
-    }
-    localStorage.setItem('vaultguard_api_base', cleanUrl);
-    setServerUrl(cleanUrl);
-    setServerSaveSuccess(true);
-    setTimeout(() => {
-      setServerSaveSuccess(false);
-      setShowServerConfig(false);
-    }, 1500);
-  };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -192,40 +174,6 @@ export default function RegisterPage() {
                 Log in here
               </Link>
             </p>
-
-            <div className="pt-1.5 border-t border-border-dark/30">
-              <button
-                type="button"
-                onClick={() => setShowServerConfig(!showServerConfig)}
-                className="text-[9px] text-text-secondary hover:text-accent-teal transition-colors cursor-pointer font-bold uppercase tracking-wider"
-              >
-                {showServerConfig ? 'Hide Server URL' : 'Configure Server'}
-              </button>
-
-              {showServerConfig && (
-                <div className="mt-2 p-2.5 rounded-lg bg-bg-dark border border-border-dark text-left space-y-2">
-                  <div className="space-y-1">
-                    <label className="block text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
-                      Vault Server URL
-                    </label>
-                    <input
-                      type="url"
-                      value={serverUrl}
-                      onChange={(e) => setServerUrl(e.target.value)}
-                      placeholder="https://vaultguard-qi2y.onrender.com"
-                      className="w-full px-2.5 py-1.5 rounded bg-surface-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/30 text-[10px]"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSaveServer}
-                    className="w-full py-1.5 rounded bg-surface-hover hover:bg-border-dark border border-border-dark text-text-primary font-bold text-[10px] active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    {serverSaveSuccess ? 'Saved ✓' : 'Save Configuration'}
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -354,39 +302,7 @@ export default function RegisterPage() {
             </Link>
           </p>
 
-          <div className="pt-2 border-t border-border-dark/30">
-            <button
-              type="button"
-              onClick={() => setShowServerConfig(!showServerConfig)}
-              className="text-xs text-text-secondary hover:text-accent-teal transition-colors cursor-pointer font-medium"
-            >
-              {showServerConfig ? 'Hide Server Configuration' : 'Configure Server Connection'}
-            </button>
 
-            {showServerConfig && (
-              <div className="mt-3 p-4 rounded-xl bg-bg-dark border border-border-dark text-left space-y-3">
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider">
-                    Vault Server URL
-                  </label>
-                  <input
-                    type="url"
-                    value={serverUrl}
-                    onChange={(e) => setServerUrl(e.target.value)}
-                    placeholder="https://vaultguard-qi2y.onrender.com"
-                    className="w-full px-3 py-2 rounded-lg bg-surface-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/30 text-xs"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSaveServer}
-                  className="w-full py-2 rounded-lg bg-surface-hover hover:bg-border-dark border border-border-dark text-text-primary font-semibold text-xs active:scale-[0.98] transition-all cursor-pointer"
-                >
-                  {serverSaveSuccess ? 'Saved ✓' : 'Save Configuration'}
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

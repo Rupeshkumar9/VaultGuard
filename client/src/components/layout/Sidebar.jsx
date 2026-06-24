@@ -18,7 +18,8 @@ import {
   Terminal,
   Gamepad2,
   MoreHorizontal,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCrypto } from '../../contexts/CryptoContext';
@@ -54,7 +55,7 @@ export default function Sidebar({
 }) {
   const { logout } = useAuth();
   const { lock } = useCrypto();
-  const { entries } = useVault();
+  const { entries, fetchEntries, isLoading } = useVault();
 
   // Get item count helper (excluding items currently in the trash for active views)
   const getCount = (category) => {
@@ -158,6 +159,15 @@ export default function Sidebar({
             <span className="text-xs bg-bg-dark border border-border-dark px-2 py-0.5 rounded-full text-text-secondary font-mono">
               {getCount('Trash')}
             </span>
+          </button>
+
+          <button
+            onClick={fetchEntries}
+            disabled={isLoading}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`w-4.5 h-4.5 ${isLoading ? 'animate-spin text-accent-teal' : 'text-text-secondary/70'}`} />
+            <span>Sync Vault Now</span>
           </button>
         </div>
 

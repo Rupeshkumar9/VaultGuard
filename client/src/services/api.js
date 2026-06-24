@@ -28,8 +28,8 @@ export const clearToken = () => {
  * @param {object} options - Fetch options
  */
 const request = async (endpoint, options = {}) => {
-  // Resolve API base URL dynamically: checks localStorage override, then env, then defaults to Render hosted backend
-  let apiBase = localStorage.getItem('vaultguard_api_base') || import.meta.env.VITE_API_URL || 'https://vaultguard-qi2y.onrender.com';
+  // Resolve API base URL strictly from Vite's environment variables
+  let apiBase = import.meta.env.VITE_API_URL || '';
   if (apiBase.endsWith('/')) {
     apiBase = apiBase.slice(0, -1);
   }

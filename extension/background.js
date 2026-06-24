@@ -1,7 +1,7 @@
 import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from './crypto-helper.js';
 import { localDb } from './local-db.js';
 
-const DEFAULT_SERVER_URL = 'http://localhost:5000';
+const DEFAULT_SERVER_URL = 'https://vaultguard-qi2y.onrender.com'; //change it to your server url
 let autoLockTimer = null;
 
 // Initialize access level for session storage so popup can also access it
