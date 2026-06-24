@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCrypto } from '../contexts/CryptoContext';
-import { isExtension } from '../utils/platform';
+import { isExtension, isNative } from '../utils/platform';
+import { mobileAuth } from '../services/mobileAuth';
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [rememberPassword, setRememberPassword] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,6 +37,22 @@ export default function LoginPage() {
         // 2. Cache master password in CryptoContext to enable client-side encryption
         await unlock(password);
         
+        // Save mobile preferences
+        if (isNative) {
+          if (rememberPassword) {
+            localStorage.setItem('vaultguard_mobile_keep_unlocked', 'true');
+            await mobileAuth.saveAutoUnlockPassword(password);
+          } else {
+            localStorage.removeItem('vaultguard_mobile_keep_unlocked');
+            await mobileAuth.clearAutoUnlockPassword();
+          }
+
+          // If biometric is enabled, sync secure credentials
+          if (localStorage.getItem('vaultguard_mobile_biometric_unlock') === 'true') {
+            await mobileAuth.saveSecureCredentials(email, password);
+          }
+        }
+
         // 3. Redirect to the main vault page
         navigate('/');
       }
@@ -191,6 +209,21 @@ export default function LoginPage() {
               </button>
             </div>
           </div>
+
+          {isNative && (
+            <div className="flex items-center gap-2 py-1">
+              <input
+                type="checkbox"
+                id="rememberPassword"
+                checked={rememberPassword}
+                onChange={(e) => setRememberPassword(e.target.checked)}
+                className="w-4 h-4 rounded bg-bg-dark border border-border-dark text-accent-teal focus:ring-accent-teal/50 cursor-pointer"
+              />
+              <label htmlFor="rememberPassword" className="text-xs text-text-secondary select-none cursor-pointer">
+                Remember Master Password
+              </label>
+            </div>
+          )}
 
           {error && (
             <p className="text-xs text-red-500 font-medium bg-red-500/10 p-3 rounded-lg border border-red-500/20">

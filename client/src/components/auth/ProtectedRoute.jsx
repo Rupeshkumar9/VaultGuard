@@ -1,13 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCrypto } from '../../contexts/CryptoContext';
+import { isNative } from '../../utils/platform';
+import { mobileAuth } from '../../services/mobileAuth';
 
 export const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const { isUnlocked, unlock } = useCrypto();
   const [unlockPassword, setUnlockPassword] = useState('');
   const [error, setError] = useState('');
+  const [hasBiometric, setHasBiometric] = useState(false);
+  const [isBiometricPrompting, setIsBiometricPrompting] = useState(false);
+
+  // Auto-unlock and Biometric check on mount
+  useEffect(() => {
+    if (!isNative || isUnlocked || !isAuthenticated || !user?.email) return;
+
+    const attemptAutoUnlock = async () => {
+      // 1. Check if Keep Unlocked (Remember Password) is enabled
+      const isKeepUnlocked = localStorage.getItem('vaultguard_mobile_keep_unlocked') === 'true';
+      if (isKeepUnlocked) {
+        const savedPassword = await mobileAuth.getAutoUnlockPassword();
+        if (savedPassword) {
+          const success = await unlock(savedPassword);
+          if (success) return;
+        }
+      }
+
+      // 2. Check if Biometric Unlock is enabled
+      const isBiometricActive = localStorage.getItem('vaultguard_mobile_biometric_unlock') === 'true';
+      const available = await mobileAuth.checkBiometricAvailable();
+      setHasBiometric(available && isBiometricActive);
+
+      if (available && isBiometricActive) {
+        // Automatically trigger biometric unlock on screen load
+        triggerBiometricUnlock();
+      }
+    };
+
+    attemptAutoUnlock();
+  }, [isAuthenticated, isUnlocked, user]);
+
+  const triggerBiometricUnlock = async () => {
+    if (isBiometricPrompting || !user?.email) return;
+    setIsBiometricPrompting(true);
+    try {
+      const password = await mobileAuth.loadSecureCredentials(user.email);
+      if (password) {
+        const success = await unlock(password);
+        if (!success) {
+          setError('Failed to decrypt vault with stored biometric credentials.');
+        }
+      }
+    } catch (err) {
+      console.error('Biometric authentication failed:', err);
+    } finally {
+      setIsBiometricPrompting(false);
+    }
+  };
 
   // 1. If auth is loading, show a full screen pulsing shield spinner
   if (isLoading) {
@@ -76,10 +127,21 @@ export const ProtectedRoute = ({ children }) => {
 
             <button
               type="submit"
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-accent-teal to-cyan-500 text-bg-dark font-semibold text-sm hover:opacity-90 active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-accent-teal/10"
+              className="w-full py-3 rounded-lg bg-gradient-to-r from-accent-teal to-cyan-500 text-bg-dark font-semibold text-sm hover:opacity-90 active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-accent-teal/10 mb-2"
             >
               Unlock Vault
             </button>
+
+            {hasBiometric && (
+              <button
+                type="button"
+                onClick={triggerBiometricUnlock}
+                className="w-full py-2.5 rounded-lg border border-border-dark bg-surface-dark hover:bg-surface-hover text-text-primary font-semibold text-xs transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>🔑</span>
+                <span>Unlock with Fingerprint</span>
+              </button>
+            )}
           </form>
         </div>
       </div>

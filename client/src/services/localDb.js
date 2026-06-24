@@ -145,5 +145,60 @@ export const localDb = {
       console.error('Failed to clear IndexedDB:', err);
       return false;
     }
+  },
+
+  async saveAutoUnlockPassword(password) {
+    try {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(USER_STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(USER_STORE_NAME);
+        const request = store.put({
+          key: 'auto_unlock_master_password',
+          value: password,
+          updatedAt: new Date().toISOString()
+        });
+
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => reject(request.error);
+      });
+    } catch (err) {
+      console.error('Failed to save auto unlock password:', err);
+      return false;
+    }
+  },
+
+  async getAutoUnlockPassword() {
+    try {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(USER_STORE_NAME, 'readonly');
+        const store = transaction.objectStore(USER_STORE_NAME);
+        const request = store.get('auto_unlock_master_password');
+
+        request.onsuccess = () => resolve(request.result?.value || null);
+        request.onerror = () => reject(request.error);
+      });
+    } catch (err) {
+      console.error('Failed to get auto unlock password:', err);
+      return null;
+    }
+  },
+
+  async clearAutoUnlockPassword() {
+    try {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(USER_STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(USER_STORE_NAME);
+        const request = store.delete('auto_unlock_master_password');
+
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => reject(request.error);
+      });
+    } catch (err) {
+      console.error('Failed to clear auto unlock password:', err);
+      return false;
+    }
   }
 };

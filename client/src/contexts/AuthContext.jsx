@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { api, setToken, clearToken } from '../services/api';
 import { localDb } from '../services/localDb';
 import { isNative, isExtension } from '../utils/platform';
+import { mobileAuth } from '../services/mobileAuth';
 
 const AuthContext = createContext(null);
 const AUTH_CACHE_KEY = 'vaultguard_cached_user';
@@ -256,6 +257,14 @@ export const AuthProvider = ({ children }) => {
         await chrome.runtime.sendMessage({ action: 'LOCK_VAULT' });
       } else {
         await api.post('/auth/logout');
+        if (isNative) {
+          localStorage.removeItem('vaultguard_mobile_keep_unlocked');
+          localStorage.removeItem('vaultguard_mobile_biometric_unlock');
+          if (user?.email) {
+            await mobileAuth.clearSecureCredentials(user.email);
+          }
+          await mobileAuth.clearAutoUnlockPassword();
+        }
       }
     } catch (error) {
       console.error('Logout request failed:', error);

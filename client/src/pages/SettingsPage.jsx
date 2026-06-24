@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings, 
   ShieldAlert, 
@@ -16,12 +16,13 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useVault } from '../contexts/VaultContext';
 import { useCrypto } from '../contexts/CryptoContext';
-import { isExtension } from '../utils/platform';
+import { isExtension, isNative } from '../utils/platform';
+import { mobileAuth } from '../services/mobileAuth';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
   const { entries, addEntry, fetchEntries, deleteEntry } = useVault();
-  const { isUnlocked, decryptData } = useCrypto();
+  const { isUnlocked, decryptData, getMasterPassword } = useCrypto();
   const [isExportingDecrypted, setIsExportingDecrypted] = useState(false);
 
   // Sync state for extensions
@@ -50,10 +51,67 @@ export default function SettingsPage() {
     }
   };
 
-  const [isExportingEncrypted, setIsExportingEncrypted] = useState(false);
   const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
     return localStorage.getItem('vaultguard_lock_timeout') || '5';
   });
+
+  const [mobileBiometricEnabled, setMobileBiometricEnabled] = useState(() => {
+    return localStorage.getItem('vaultguard_mobile_biometric_unlock') === 'true';
+  });
+  const [mobileKeepUnlocked, setMobileKeepUnlocked] = useState(() => {
+    return localStorage.getItem('vaultguard_mobile_keep_unlocked') === 'true';
+  });
+  const [isBiometricHardwareAvailable, setIsBiometricHardwareAvailable] = useState(false);
+
+  useEffect(() => {
+    if (isNative) {
+      mobileAuth.checkBiometricAvailable().then(available => {
+        setIsBiometricHardwareAvailable(available);
+      });
+    }
+  }, []);
+
+  const handleToggleBiometric = async (checked) => {
+    if (!isNative) return;
+    if (checked) {
+      try {
+        const password = getMasterPassword();
+        if (password && user?.email) {
+          await mobileAuth.saveSecureCredentials(user.email, password);
+          localStorage.setItem('vaultguard_mobile_biometric_unlock', 'true');
+          setMobileBiometricEnabled(true);
+        }
+      } catch (err) {
+        console.error('Failed to enable biometric unlock:', err);
+      }
+    } else {
+      if (user?.email) {
+        await mobileAuth.clearSecureCredentials(user.email);
+      }
+      localStorage.removeItem('vaultguard_mobile_biometric_unlock');
+      setMobileBiometricEnabled(false);
+    }
+  };
+
+  const handleToggleKeepUnlocked = async (checked) => {
+    if (!isNative) return;
+    if (checked) {
+      try {
+        const password = getMasterPassword();
+        if (password) {
+          await mobileAuth.saveAutoUnlockPassword(password);
+          localStorage.setItem('vaultguard_mobile_keep_unlocked', 'true');
+          setMobileKeepUnlocked(true);
+        }
+      } catch (err) {
+        console.error('Failed to enable auto-unlock:', err);
+      }
+    } else {
+      await mobileAuth.clearAutoUnlockPassword();
+      localStorage.removeItem('vaultguard_mobile_keep_unlocked');
+      setMobileKeepUnlocked(false);
+    }
+  };
 
 
 
@@ -461,7 +519,7 @@ export default function SettingsPage() {
 
             {/* Go to Web Dashboard */}
             <button
-              onClick={() => window.open(import.meta.env.VITE_FRONTEND_URL || 'https://vault-guard-xi.vercel.app/', '_blank')}
+              onClick={() => window.open(import.meta.env.VITE_FRONTEND_URL, '_blank')}
               className="w-full py-2 px-3 rounded-lg bg-bg-dark border border-border-dark hover:border-accent-teal/30 hover:bg-surface-hover text-left transition-all active:scale-[0.98] cursor-pointer text-xs font-semibold text-text-primary flex items-center gap-2"
             >
               <ExternalLink className="w-3.5 h-3.5 text-accent-teal" />
@@ -539,6 +597,53 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+
+      {/* Mobile Biometric and Auto-Unlock Settings */}
+      {isNative && (
+        <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-4">
+          <div className="flex items-center gap-3 border-b border-border-dark/50 pb-3">
+            <Lock className="w-5 h-5 text-accent-teal" />
+            <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">Mobile Security Preferences</h3>
+          </div>
+
+          <div className="space-y-4">
+            {/* Biometric Toggle */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <label className="block text-xs font-semibold text-text-primary">Biometric Unlock (Fingerprint / FaceID)</label>
+                <p className="text-[10px] text-text-secondary/60">
+                  {isBiometricHardwareAvailable 
+                    ? "Unlock your vault quickly using your device's biometric authentication." 
+                    : "Biometric authentication is not supported or set up on this device."}
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                disabled={!isBiometricHardwareAvailable}
+                checked={mobileBiometricEnabled}
+                onChange={(e) => handleToggleBiometric(e.target.checked)}
+                className="w-9 h-5 rounded-full bg-bg-dark border border-border-dark checked:bg-accent-teal text-accent-teal focus:ring-accent-teal/30 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            {/* Keep Unlocked Toggle */}
+            <div className="flex items-start justify-between gap-4 pt-3 border-t border-border-dark/30">
+              <div className="space-y-0.5">
+                <label className="block text-xs font-semibold text-text-primary">Keep Unlocked (Remember Password)</label>
+                <p className="text-[10px] text-text-secondary/60">
+                  Stores your master password in local database storage to automatically decrypt the vault on launch. Use with caution.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={mobileKeepUnlocked}
+                onChange={(e) => handleToggleKeepUnlocked(e.target.checked)}
+                className="w-9 h-5 rounded-full bg-bg-dark border border-border-dark checked:bg-accent-teal text-accent-teal focus:ring-accent-teal/30 cursor-pointer"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
 
 
