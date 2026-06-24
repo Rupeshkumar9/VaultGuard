@@ -46,7 +46,7 @@ export const CryptoProvider = ({ children }) => {
     restoreSession();
   }, [isAuthenticated, user]);
 
-  const unlock = async (password) => {
+  const unlock = async (password, isAlreadyVerified = false) => {
     if (isExtension) {
       // In extension popup, unlocking is done by logging in (which calls UNLOCK_VAULT in background)
       return await login(user?.email || '', password);
@@ -85,15 +85,19 @@ export const CryptoProvider = ({ children }) => {
 
       // If not verified locally (e.g. no cached entries, or we are on web dashboard where IndexedDB cache doesn't exist), check with server
       if (!isVerified) {
-        try {
-          const res = await api.post('/auth/login', { email: user.email, password });
-          if (res && res.success) {
-            isVerified = true;
+        if (isAlreadyVerified) {
+          isVerified = true;
+        } else {
+          try {
+            const res = await api.post('/auth/login', { email: user.email, password });
+            if (res && res.success) {
+              isVerified = true;
+            }
+          } catch (serverErr) {
+            // Server auth failed.
+            console.error('Server verification failed:', serverErr);
+            return false;
           }
-        } catch (serverErr) {
-          // Server auth failed.
-          console.error('Server verification failed:', serverErr);
-          return false;
         }
       }
 

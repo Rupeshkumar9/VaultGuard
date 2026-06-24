@@ -534,6 +534,30 @@ export default function SettingsPage() {
           )}
         </div>
 
+        {/* About Developer Watermark */}
+        <div className="p-3.5 rounded-xl bg-surface-dark border border-border-dark space-y-2 shadow-md">
+          <div className="flex items-center gap-2 border-b border-border-dark/50 pb-2">
+            <Info className="w-4 h-4 text-accent-teal" />
+            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">About</h3>
+          </div>
+          <div className="text-[11px] text-text-secondary space-y-1.5 leading-relaxed">
+            <p>
+              Designed & Developed by <span className="font-semibold text-accent-teal">Rupesh</span>.
+            </p>
+            <div className="flex justify-between items-center text-[10px] pt-1.5 border-t border-border-dark/30">
+              <span>VaultGuard v1.0.6</span>
+              <a 
+                href="https://github.com/rupeshkumar9" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-text-secondary hover:text-accent-teal transition-colors"
+              >
+                github.com/rupeshkumar9
+              </a>
+            </div>
+          </div>
+        </div>
+
         {/* Log Out Button */}
         <button
           onClick={logout}
@@ -774,6 +798,30 @@ export default function SettingsPage() {
             <span>{importError}</span>
           </div>
         )}
+      </div>
+
+      {/* About Developer Watermark */}
+      <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-3.5 shadow-md">
+        <div className="flex items-center gap-3 border-b border-border-dark/50 pb-3">
+          <Info className="w-5 h-5 text-accent-teal" />
+          <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">About VaultGuard</h3>
+        </div>
+        <div className="text-xs text-text-secondary space-y-2">
+          <p>
+            <span className="font-semibold text-text-primary">VaultGuard</span> is a secure, zero-knowledge password manager designed to keep your credentials safe using advanced client-side encryption.
+          </p>
+          <div className="pt-2 border-t border-border-dark/30 flex items-center justify-between text-[11px]">
+            <span>Developed by <span className="font-bold text-accent-teal">Rupesh</span></span>
+            <a 
+              href="https://github.com/rupeshkumar9" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-text-secondary hover:text-accent-teal transition-colors flex items-center gap-1 font-semibold"
+            >
+              <span>github/rupeshkumar9</span>
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );

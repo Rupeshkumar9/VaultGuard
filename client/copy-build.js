@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+//copied the compiled react build for extension ui pop
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 

@@ -1,3 +1,8 @@
+/**
+ * VaultGuard - Zero-Knowledge Password Manager
+ * Developed by Rupesh (https://github.com/rupeshkumar9)
+ */
+
 import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from './crypto-helper.js';
 import { localDb } from './local-db.js';
 

@@ -107,14 +107,6 @@ public class VaultAutofillService extends AutofillService {
     public void onFillRequest(FillRequest request, CancellationSignal cancellationSignal, FillCallback callback) {
         android.util.Log.d(TAG, "onFillRequest triggered");
 
-        // Show a toast to confirm the service is being called
-        try {
-            android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-            mainHandler.post(() -> {
-                android.widget.Toast.makeText(getApplicationContext(), "🔐 VaultGuard: Autofill triggered!", android.widget.Toast.LENGTH_SHORT).show();
-            });
-        } catch (Exception ignored) {}
-
         List<FillContext> contexts = request.getFillContexts();
         if (contexts == null || contexts.isEmpty()) {
             android.util.Log.d(TAG, "No contexts found");

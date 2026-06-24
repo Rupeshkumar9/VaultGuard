@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Plus, Trash2, X, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw, Lock, Settings, Search } from 'lucide-react';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
+import ServerStatus from '../components/layout/ServerStatus';
 import VaultList from '../components/vault/VaultList';
 import VaultDetail from '../components/vault/VaultDetail';
 import EntryForm from '../components/vault/EntryForm';
@@ -374,6 +375,7 @@ export default function VaultPage() {
             <span className="font-extrabold text-base tracking-tight text-white">VaultGuard</span>
           </div>
           <div className="flex items-center gap-3">
+            <ServerStatus />
             <button 
               onClick={handleOpenAddForm}
               className="p-1 rounded-lg text-text-secondary hover:text-white hover:bg-surface-hover transition-colors cursor-pointer"

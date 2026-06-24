@@ -35,7 +35,7 @@ export default function LoginPage() {
       
       if (res && res.success) {
         // 2. Cache master password in CryptoContext to enable client-side encryption
-        await unlock(password);
+        await unlock(password, true);
         
         // Save mobile preferences
         if (isNative) {

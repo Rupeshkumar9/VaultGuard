@@ -45,7 +45,7 @@ export default function RegisterPage() {
       
       if (res && res.success) {
         // 3. Unlock the client-side cryptosystem using the same password
-        await unlock(password);
+        await unlock(password, true);
         
         // 4. Navigate to vault dashboard
         navigate('/');

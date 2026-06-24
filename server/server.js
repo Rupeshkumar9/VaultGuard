@@ -1,3 +1,8 @@
+/**
+ * VaultGuard - Zero-Knowledge Password Manager
+ * Developed by Rupesh (https://github.com/rupeshkumar9)
+ */
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');

@@ -73,6 +73,12 @@ export default function VaultList({
         </p>
 
         {!searchQuery && (
+          <div className="text-[10px] text-text-secondary/40 mt-4 font-semibold tracking-wide uppercase select-none">
+            Protected by VaultGuard • Developed by Rupesh
+          </div>
+        )}
+
+        {!searchQuery && (
           <button
             onClick={onOpenAddEntry}
             className="mt-6 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-accent-teal to-cyan-500 hover:opacity-90 active:scale-[0.98] text-bg-dark font-semibold text-sm transition-all shadow-lg shadow-accent-teal/10 cursor-pointer"
