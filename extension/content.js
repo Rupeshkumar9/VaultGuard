@@ -58,6 +58,17 @@ function initShadowDom() {
 
 // ──── DOM Inputs Scanner ────
 function scanForInputs() {
+  const isVaultGuardApp = document.querySelector('meta[name="vaultguard-app"]');
+  const isLoginPage = window.location.pathname.includes('/login') || 
+                       window.location.pathname.includes('/register') || 
+                       window.location.hash.includes('/login') || 
+                       window.location.hash.includes('/register');
+
+  if (isVaultGuardApp && !isLoginPage) {
+    cleanupAllOverlays();
+    return;
+  }
+
   const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
   const allInputs = Array.from(document.querySelectorAll('input'));
 
@@ -107,12 +118,14 @@ function setupInputListeners(pair) {
 
   inputs.forEach(input => {
     // Show icon on focus or hover
-    input.addEventListener('focus', () => {
+    input.addEventListener('focus', async () => {
+      await fetchMatchingLogins();
       repositionOverlays();
       showOverlayIcon(input, pair);
     });
 
-    input.addEventListener('mouseenter', () => {
+    input.addEventListener('mouseenter', async () => {
+      await fetchMatchingLogins();
       showOverlayIcon(input, pair);
     });
 
@@ -142,6 +155,15 @@ function setupInputListeners(pair) {
 
 // ──── Overlay Icon Placement ────
 function showOverlayIcon(input, pair) {
+  // If there are no matching credentials, do not display the suggestion icon
+  if (matchingLogins.length === 0) {
+    if (activeIconOverlays.has(input)) {
+      const icon = activeIconOverlays.get(input);
+      icon.style.display = 'none';
+    }
+    return;
+  }
+
   initShadowDom();
 
   // If already exists, just show it
@@ -283,6 +305,15 @@ function removeActiveDropdown() {
   }
 }
 
+function cleanupAllOverlays() {
+  activeIconOverlays.forEach((iconDiv) => {
+    try { iconDiv.remove(); } catch (e) {}
+  });
+  activeIconOverlays.clear();
+  removeActiveDropdown();
+  detectedInputs = [];
+}
+
 // ──── Form Submission & Successful Login Heuristics ────
 async function savePendingSubmit(username, password, pair) {
   if (!password || password.length < 4) return;
@@ -396,6 +427,7 @@ function showSaveBanner(username, password, existingLogin) {
   const descText = existingLogin ? `Update password for ${username}?` : `Save login ${username} to VaultGuard?`;
 
   banner.innerHTML = `
+    <button class="vg-banner-close" id="vg-banner-close" aria-label="Close save credentials banner">&times;</button>
     <div class="vg-banner-left">
       <div class="vg-banner-logo">
         <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" fill="none">
@@ -422,6 +454,7 @@ function showSaveBanner(username, password, existingLogin) {
     }, 250);
   };
 
+  banner.querySelector('#vg-banner-close').addEventListener('click', dismissBanner);
   banner.querySelector('#vg-banner-never').addEventListener('click', dismissBanner);
 
   banner.querySelector('#vg-banner-save').addEventListener('click', async () => {
@@ -503,8 +536,14 @@ async function fetchMatchingLogins() {
 
 // ──── Initial Boot and Listeners ────
 async function init() {
-  // Do not run content script inside the VaultGuard application itself
-  if (document.querySelector('meta[name="vaultguard-app"]')) {
+  // Do not run content script inside the VaultGuard application itself, except on login/register pages
+  const isVaultGuardApp = document.querySelector('meta[name="vaultguard-app"]');
+  const isLoginPage = window.location.pathname.includes('/login') || 
+                       window.location.pathname.includes('/register') || 
+                       window.location.hash.includes('/login') || 
+                       window.location.hash.includes('/register');
+
+  if (isVaultGuardApp && !isLoginPage) {
     console.log('VaultGuard extension content script disabled on this app page.');
     return;
   }

@@ -177,6 +177,19 @@ function getBaseDomain(hostname) {
   return parts.slice(-2).join('.');
 }
 
+const MULTI_TENANT_DOMAINS = [
+  'vercel.app',
+  'github.io',
+  'netlify.app',
+  'herokuapp.com',
+  'firebaseapp.com',
+  'pages.dev',
+  'workers.dev',
+  'githubusercontent.com',
+  'amazonaws.com',
+  'onedev.sh'
+];
+
 // Helper to derive master key from stored master password and user email
 async function getMasterKey(masterPassword) {
   const session = await chrome.storage.session.get(['user']);
@@ -490,8 +503,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const pageBase = getBaseDomain(pageDomain);
             const entryBase = getBaseDomain(entryDomain);
 
-            // Match if base domains are identical (e.g., auth.geeksforgeeks.org matching practice.geeksforgeeks.org)
-            const isMatch = pageBase && (pageBase === entryBase);
+            // Match logic:
+            // 1. Exact match of hostnames (e.g., vault-guard-xi.vercel.app and vault-guard-xi.vercel.app)
+            // 2. Base domain match, provided the base domain is not a known multi-tenant hosting suffix (like vercel.app)
+            let isMatch = false;
+            if (pageDomain === entryDomain) {
+              isMatch = true;
+            } else if (pageBase && pageBase === entryBase) {
+              if (!MULTI_TENANT_DOMAINS.includes(pageBase)) {
+                isMatch = true;
+              }
+            }
             
             if (isMatch) {
               try {

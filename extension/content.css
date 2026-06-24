@@ -212,3 +212,23 @@
   from { opacity: 1; transform: translate(-50%, 0); }
   to { opacity: 0; transform: translate(-50%, -20px); }
 }
+
+.vg-banner-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.vg-banner-close:hover {
+  color: #ef4444;
+  background-color: rgba(255, 255, 255, 0.05);
+}

@@ -1,5 +1,5 @@
 import React, { createContext, useState, useRef, useContext, useEffect } from 'react';
-import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from '../services/crypto';
+import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy, exportKeyToBase64, importKeyFromBase64 } from '../services/crypto';
 import { useAuth } from './AuthContext';
 import { isExtension } from '../utils/platform';
 import { api } from '../services/api';
@@ -31,11 +31,11 @@ export const CryptoProvider = ({ children }) => {
   useEffect(() => {
     if (isExtension) return;
     const restoreSession = async () => {
-      const savedPassword = sessionStorage.getItem('vaultguard_session_master_password');
-      if (savedPassword && isAuthenticated && user?.email) {
+      const savedKeyBase64 = sessionStorage.getItem('vaultguard_session_master_key');
+      if (savedKeyBase64 && isAuthenticated && user?.email) {
         try {
-          masterPasswordRef.current = savedPassword;
-          masterKeyRef.current = await deriveMasterKey(savedPassword, user.email);
+          const importedKey = await importKeyFromBase64(savedKeyBase64);
+          masterKeyRef.current = importedKey;
           setIsUnlocked(true);
         } catch (err) {
           console.error('Failed to restore derived master key on load:', err);
@@ -101,7 +101,12 @@ export const CryptoProvider = ({ children }) => {
         masterPasswordRef.current = password;
         masterKeyRef.current = derivedKey;
         setIsUnlocked(true);
-        sessionStorage.setItem('vaultguard_session_master_password', password);
+        try {
+          const keyBase64 = await exportKeyToBase64(derivedKey);
+          sessionStorage.setItem('vaultguard_session_master_key', keyBase64);
+        } catch (err) {
+          console.error('Failed to save master key to sessionStorage:', err);
+        }
         return true;
       }
 
@@ -120,7 +125,7 @@ export const CryptoProvider = ({ children }) => {
     masterPasswordRef.current = '';
     masterKeyRef.current = null;
     setIsUnlocked(false);
-    sessionStorage.removeItem('vaultguard_session_master_password');
+    sessionStorage.removeItem('vaultguard_session_master_key');
   };
 
   const getMasterPassword = () => {

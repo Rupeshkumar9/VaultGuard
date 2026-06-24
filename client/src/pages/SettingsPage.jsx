@@ -51,6 +51,7 @@ export default function SettingsPage() {
     }
   };
 
+  const [isExportingEncrypted, setIsExportingEncrypted] = useState(false);
   const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
     return localStorage.getItem('vaultguard_lock_timeout') || '5';
   });

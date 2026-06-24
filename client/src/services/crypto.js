@@ -66,7 +66,7 @@ export const deriveKey = async (password, salt) => {
     },
     baseKey,
     { name: 'AES-GCM', length: 256 },
-    false, // Key is not exportable (safer in memory)
+    true, // Key is exportable so we can save the derived key in sessionStorage
     ['encrypt', 'decrypt']
   );
 };
@@ -168,4 +168,30 @@ export const decryptLegacy = async (encryptedDataBase64, ivBase64, saltBase64, p
     console.error('Legacy decryption failed:', error);
     throw new Error('Failed to decrypt data using legacy mode.');
   }
+};
+
+/**
+ * Exports a CryptoKey to a Base64 string.
+ * @param {CryptoKey} key 
+ * @returns {Promise<string>}
+ */
+export const exportKeyToBase64 = async (key) => {
+  const raw = await window.crypto.subtle.exportKey('raw', key);
+  return bufferToBase64(raw);
+};
+
+/**
+ * Imports a CryptoKey from a Base64 string.
+ * @param {string} base64Key 
+ * @returns {Promise<CryptoKey>}
+ */
+export const importKeyFromBase64 = async (base64Key) => {
+  const buf = base64ToBuffer(base64Key);
+  return window.crypto.subtle.importKey(
+    'raw',
+    buf,
+    'AES-GCM',
+    true, // Make it extractable in case we need to export again
+    ['encrypt', 'decrypt']
+  );
 };
