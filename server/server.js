@@ -20,6 +20,9 @@ const vaultRoutes = require('./routes/vault');
 
 const app = express();
 
+// Trust reverse proxy (necessary for rate limiting on Render/Heroku/AWS to read the real client IP)
+app.set('trust proxy', 1);
+
 // ──── Security Middleware ────
 
 // Set security HTTP headers

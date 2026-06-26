@@ -1,6 +1,6 @@
 # 🔐 VaultGuard
 
-An open-source, enterprise-grade, **Zero-Knowledge** password manager with a **Cache-First** vault architecture, designed for Web browsers, Android mobile devices (with native Autofill suggestions), and Browser WebExtensions.
+An enterprise-grade, **Zero-Knowledge** password manager designed for Web browsers, Android mobile devices (with native offline Autofill suggestions), and Browser WebExtensions.
 
 VaultGuard is engineered around absolute privacy, ensuring that your raw credentials never touch the internet and are encrypted client-side before being synchronized.
 
@@ -14,24 +14,25 @@ VaultGuard is built on a **Zero-Knowledge** security model. Your master password
 * **Client-Side Encryption**: All credentials (usernames, passwords, notes) are encrypted client-side using **AES-256-GCM** before being synced to the server.
 * **Blind Database**: The backend server and MongoDB database only store opaque ciphertext, initialization vectors (`iv`), and random salts. Even if the database is breached, the attacker receives nothing but mathematically useless ciphertext.
 
-### 2. Cache-First Vault Loading Strategy
-Designed to remain responsive and fully functional regardless of backend network latency:
-* **IndexedDB Local Storage**: The web client caches your encrypted vault in local IndexedDB storage. When you unlock the vault, it decrypts and renders your credentials in-memory instantly, with zero initial network overhead.
-* **Background Sync**: Once the local vault is loaded and decrypted, VaultGuard performs a background synchronization/refresh against the backend API to fetch the latest server state, updating the local cache seamlessly.
-* **Android Keystore System Integration**: The Android mobile app automatically pushes your decrypted credentials across a native Capacitor bridge into Android’s secure **`EncryptedSharedPreferences`**. This storage uses AES-256 GCM keys managed securely by the **Android Keystore System** (hardware enclave) for native offline Autofill.
+### 2. Client-Server Web Architecture
+The Web Dashboard operates under a secure online client-server model:
+* **Direct Server Authentication**: Master passwords and session tokens are validated in real time against the backend, completely bypassing local browser database caches.
+* **Zero Browser Database Caching**: No credentials or user profile metadata are written to persistent browser databases (like IndexedDB) on the web. This prevents cross-user database contamination and guarantees clean, isolated sessions when switching between different accounts on the same browser.
+* **Secure Session Memory**: Cryptographic keys are maintained strictly in-memory (`sessionStorage`) for the duration of the browser tab session, ensuring zero persistent traces of raw encryption material are left on the physical disk.
 
-### 3. Native Android Integration
-VaultGuard hooks directly into the core system-level Android APIs:
-* **Autofill Service**: The native `VaultAutofillService` queries your hardware-secured on-device storage completely offline with **zero network dependencies**, providing instant keyboard inline suggestions (for Gboard) and standard dropdown presentations.
-* **Unpinned Suggestions**: Suggestions are presented naturally at the end of the keyboard suggestion strip rather than pinned, ensuring a clean, non-intrusive keyboard interface.
+### 3. Native Android Integration (Offline-First Vault)
+VaultGuard hooks directly into native Android APIs to support secure, offline-first vault reads:
+* **True Offline Access**: The Android app synchronizes and encrypts your credentials, caching them locally in Android's secure **`EncryptedSharedPreferences`**. This storage uses AES-256 GCM keys managed securely by the hardware-backed **Android Keystore System** (TEE/enclave).
+* **Native Autofill Service**: The native `VaultAutofillService` reads and decrypts your vault data directly from this hardware-secured local storage. Suggestions are generated and autofilled completely offline with **zero network dependencies**, providing instant keyboard inline suggestions (for Gboard) and standard dropdown presentations even without internet access.
+* **Device Lock & Biometrics**: Supports local biometrics (fingerprint/face recognition) and device lock integration, allowing users to securely unlock the offline vault cache instantly without re-typing their master password.
 * **"Open VaultGuard" Context Menu (PROCESS_TEXT)**: Declares a `ProcessTextActivity` that hooks into Android's native text selection context menu. You can select text anywhere on Android, click the 3-dot context menu, choose **"Open VaultGuard"**, and the main app will launch as a seamless floating overlay directly on top of the current app.
 
-### 4. Browser WebExtension Architecture
-The browser WebExtension is structured around a central service worker:
+### 4. Browser WebExtension Architecture (Offline-First Background Worker)
+The browser WebExtension is structured around a central background service worker that supports offline credential access:
 * **Background Service Worker (`background.js`)**: Manages the active vault state, handles local decryption, caches data in IndexedDB, and handles session auto-lock timers.
+* **Offline Credential Support**: The background worker isolates and stores encrypted data locally in the browser extension's IndexedDB, allowing you to search and view your credentials even when offline.
 * **Vite API URL Synchronization**: When the extension's React popup mounts, it automatically runs an effect that syncs Vite's build-time environment variable (`VITE_API_URL`) to the service worker via a `'SET_SERVER_URL'` message, storing it in `chrome.storage.local`.
 * **Manual Server Override**: Users can override the server URL directly in the extension settings panel, bypassing the build-time configuration.
-* **Ultraminimal Fallback**: If no URL is synced or configured in storage, the service worker falls back to a hardcoded `DEFAULT_SERVER_URL` pointing to the production Render API backend.
 
 ---
 
