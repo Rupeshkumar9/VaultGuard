@@ -17,13 +17,33 @@ import { useAuth } from '../contexts/AuthContext';
 import { useVault } from '../contexts/VaultContext';
 import { useCrypto } from '../contexts/CryptoContext';
 import { isExtension, isNative } from '../utils/platform';
-import { mobileAuth } from '../services/mobileAuth';
+import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function SettingsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth();
   const { entries, addEntry, fetchEntries, deleteEntry } = useVault();
   const { isUnlocked, decryptData, getMasterPassword } = useCrypto();
   const [isExportingDecrypted, setIsExportingDecrypted] = useState(false);
+
+  // Danger Zone / Account Deletion state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    if (emailInput !== user?.email) return;
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteAccount();
+    } catch (err) {
+      console.error('Delete account error:', err);
+      setDeleteError(err.message || 'Failed to delete account. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Sync state for extensions
   const [isSyncing, setIsSyncing] = useState(false);
@@ -56,43 +76,9 @@ export default function SettingsPage() {
     return localStorage.getItem('vaultguard_lock_timeout') || '5';
   });
 
-  const [mobileBiometricEnabled, setMobileBiometricEnabled] = useState(() => {
-    return localStorage.getItem('vaultguard_mobile_biometric_unlock') === 'true';
-  });
   const [mobileKeepUnlocked, setMobileKeepUnlocked] = useState(() => {
     return localStorage.getItem('vaultguard_mobile_keep_unlocked') === 'true';
   });
-  const [isBiometricHardwareAvailable, setIsBiometricHardwareAvailable] = useState(false);
-
-  useEffect(() => {
-    if (isNative) {
-      mobileAuth.checkBiometricAvailable().then(available => {
-        setIsBiometricHardwareAvailable(available);
-      });
-    }
-  }, []);
-
-  const handleToggleBiometric = async (checked) => {
-    if (!isNative) return;
-    if (checked) {
-      try {
-        const password = getMasterPassword();
-        if (password && user?.email) {
-          await mobileAuth.saveSecureCredentials(user.email, password);
-          localStorage.setItem('vaultguard_mobile_biometric_unlock', 'true');
-          setMobileBiometricEnabled(true);
-        }
-      } catch (err) {
-        console.error('Failed to enable biometric unlock:', err);
-      }
-    } else {
-      if (user?.email) {
-        await mobileAuth.clearSecureCredentials(user.email);
-      }
-      localStorage.removeItem('vaultguard_mobile_biometric_unlock');
-      setMobileBiometricEnabled(false);
-    }
-  };
 
   const handleToggleKeepUnlocked = async (checked) => {
     if (!isNative) return;
@@ -632,27 +618,8 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-4">
-            {/* Biometric Toggle */}
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-0.5">
-                <label className="block text-xs font-semibold text-text-primary">Biometric Unlock (Fingerprint / FaceID)</label>
-                <p className="text-[10px] text-text-secondary/60">
-                  {isBiometricHardwareAvailable 
-                    ? "Unlock your vault quickly using your device's biometric authentication." 
-                    : "Biometric authentication is not supported or set up on this device."}
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                disabled={!isBiometricHardwareAvailable}
-                checked={mobileBiometricEnabled}
-                onChange={(e) => handleToggleBiometric(e.target.checked)}
-                className="w-9 h-5 rounded-full bg-bg-dark border border-border-dark checked:bg-accent-teal text-accent-teal focus:ring-accent-teal/30 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-              />
-            </div>
-
             {/* Keep Unlocked Toggle */}
-            <div className="flex items-start justify-between gap-4 pt-3 border-t border-border-dark/30">
+            <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
                 <label className="block text-xs font-semibold text-text-primary">Keep Unlocked (Remember Password)</label>
                 <p className="text-[10px] text-text-secondary/60">
@@ -800,6 +767,33 @@ export default function SettingsPage() {
         )}
       </div>
 
+      {/* Danger Zone */}
+      <div className="p-6 rounded-2xl bg-surface-dark border border-red-500/10 hover:border-red-500/20 transition-colors space-y-4">
+        <div className="flex items-center gap-3 border-b border-border-dark/50 pb-3">
+          <ShieldAlert className="w-5 h-5 text-red-400" />
+          <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">Danger Zone</h3>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <h4 className="text-xs font-bold text-text-primary">Delete Your Account</h4>
+            <p className="text-xs text-text-secondary">
+              Permanently delete your VaultGuard account and wipe all stored vault credentials. This action cannot be undone.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setIsDeleteModalOpen(true);
+              setEmailInput('');
+              setDeleteError('');
+            }}
+            className="py-2.5 px-4 rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-xs font-bold text-red-400 transition-all active:scale-[0.98] cursor-pointer self-start sm:self-center whitespace-nowrap"
+          >
+            Delete Account
+          </button>
+        </div>
+      </div>
+
       {/* About Developer Watermark */}
       <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-3.5 shadow-md">
         <div className="flex items-center gap-3 border-b border-border-dark/50 pb-3">
@@ -823,6 +817,87 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Account Deletion Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-surface-dark border border-border-dark rounded-2xl p-6 shadow-xl space-y-4 relative animate-scale-in">
+            <div className="flex items-center gap-3 text-red-500 border-b border-border-dark/50 pb-3">
+              <AlertTriangle className="w-6 h-6 text-red-400 shrink-0" />
+              <h3 className="text-base font-bold text-text-primary uppercase tracking-wider">Delete User Account</h3>
+            </div>
+            
+            <div className="space-y-3 text-xs text-text-secondary">
+              <p className="font-semibold text-red-400">
+                ⚠️ Warning: This action is permanent and completely irreversible.
+              </p>
+              <p>
+                By deleting your account, all credentials, logins, secure notes, and other vault metadata associated with your email will be permanently wiped from our database.
+              </p>
+              <p>
+                To confirm that you want to proceed with deleting this account, please type your email below:
+              </p>
+              
+              <div className="p-3 bg-bg-dark/60 rounded-xl border border-border-dark/50 flex flex-col gap-1">
+                <span className="text-[10px] text-text-secondary/60">YOUR EMAIL ADDRESS:</span>
+                <span className="text-xs font-bold text-text-primary select-all break-all">{user?.email}</span>
+              </div>
+
+              <div className="space-y-1.5 pt-2">
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => {
+                    setEmailInput(e.target.value);
+                    setDeleteError('');
+                  }}
+                  placeholder="Type your email address here"
+                  className="w-full px-4 py-3 rounded-xl bg-bg-dark border border-border-dark text-xs text-text-primary placeholder:text-text-secondary/40 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500/20 transition-all font-mono"
+                  disabled={isDeleting}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-2 text-xs text-red-400">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeleteModalOpen(false);
+                  setEmailInput('');
+                  setDeleteError('');
+                }}
+                disabled={isDeleting}
+                className="flex-1 py-3 px-4 rounded-xl bg-bg-dark hover:bg-bg-dark/80 border border-border-dark text-xs font-bold text-text-primary transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={emailInput !== user?.email || isDeleting}
+                className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-xs font-bold text-white transition-all active:scale-[0.98] cursor-pointer disabled:opacity-30 flex items-center justify-center gap-1.5"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Delete Permanently</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

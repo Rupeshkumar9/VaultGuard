@@ -24,6 +24,27 @@
             </intent-filter>
 
         </activity>
+
+        <activity
+            android:name=".AutofillActivity"
+            android:label="Search VaultGuard"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:exported="false" />
+
+        <!-- Text selection context menu: "Open VaultGuard" -->
+        <activity
+            android:name=".ProcessTextActivity"
+            android:label="@string/process_text_label"
+            android:theme="@style/AppTheme.Transparent"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -38,6 +59,7 @@
             android:name=".VaultAutofillService"
             android:label="VaultGuard Autofill Service"
             android:permission="android.permission.BIND_AUTOFILL_SERVICE"
+            android:supportsInlineSuggestions="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.service.autofill.AutofillService" />

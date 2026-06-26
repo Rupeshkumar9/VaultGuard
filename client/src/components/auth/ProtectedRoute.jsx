@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCrypto } from '../../contexts/CryptoContext';
 import { isNative } from '../../utils/platform';
-import { mobileAuth } from '../../services/mobileAuth';
+import { mobileAuth } from '../../services/android/mobileAuth';
 
 export const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -28,12 +28,11 @@ export const ProtectedRoute = ({ children }) => {
         }
       }
 
-      // 2. Check if Biometric Unlock is enabled
-      const isBiometricActive = localStorage.getItem('vaultguard_mobile_biometric_unlock') === 'true';
+      // 2. Check if Biometrics/Device Lock is available
       const available = await mobileAuth.checkBiometricAvailable();
-      setHasBiometric(available && isBiometricActive);
+      setHasBiometric(available);
 
-      if (available && isBiometricActive) {
+      if (available) {
         // Automatically trigger biometric unlock on screen load
         triggerBiometricUnlock();
       }
@@ -139,7 +138,7 @@ export const ProtectedRoute = ({ children }) => {
                 className="w-full py-2.5 rounded-lg border border-border-dark bg-surface-dark hover:bg-surface-hover text-text-primary font-semibold text-xs transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
               >
                 <span>🔑</span>
-                <span>Unlock with Fingerprint</span>
+                <span>Unlock with Biometrics / System Lock</span>
               </button>
             )}
           </form>

@@ -1,8 +1,8 @@
 import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
 import { api } from '../services/api';
 import { useCrypto } from './CryptoContext';
-import { localDb } from '../services/localDb';
-import { vaultBridge } from '../services/vaultBridge';
+import { localDb } from '../services/android/localDb';
+import { vaultBridge } from '../services/android/vaultBridge';
 import { isNative, isExtension } from '../utils/platform';
 
 const VaultContext = createContext(null);

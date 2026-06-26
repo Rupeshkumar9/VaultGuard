@@ -40,3 +40,6 @@ android-sdk/
 platform-tools/
 platform-tools.zip
 
+# Developer guide containing local build instructions (ignored)
+DEVELOPER_GUIDE.md
+

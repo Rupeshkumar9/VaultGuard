@@ -55,23 +55,27 @@ app.use(
 );
 
 // Rate limiting - prevent brute force attacks
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Max 10 login/register attempts per 15 minutes
-  message: {
-    success: false,
-    message: 'Too many attempts. Please try again after 15 minutes.',
-  },
-});
+const authLimiter = process.env.NODE_ENV === 'development'
+  ? (req, res, next) => next()
+  : rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 10, // Max 10 attempts per 15 minutes in production
+      message: {
+        success: false,
+        message: 'Too many attempts. Please try again after 15 minutes.',
+      },
+    });
 
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 500, // Increased to 500 to allow successful bulk credential imports
-  message: {
-    success: false,
-    message: 'Too many requests. Please slow down.',
-  },
-});
+const generalLimiter = process.env.NODE_ENV === 'development'
+  ? (req, res, next) => next()
+  : rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 500, // Increased to 500 in production to allow bulk imports
+      message: {
+        success: false,
+        message: 'Too many requests. Please slow down.',
+      },
+    });
 
 // ──── Body Parsing ────
 app.use(express.json({ limit: '10kb' })); // Limit body size

@@ -1,8 +1,8 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { api, setToken, clearToken } from '../services/api';
-import { localDb } from '../services/localDb';
+import { localDb } from '../services/android/localDb';
 import { isNative, isExtension } from '../utils/platform';
-import { mobileAuth } from '../services/mobileAuth';
+import { mobileAuth } from '../services/android/mobileAuth';
 
 const AuthContext = createContext(null);
 const AUTH_CACHE_KEY = 'vaultguard_cached_user';
@@ -44,6 +44,7 @@ const clearCachedUser = () => {
   localStorage.removeItem(AUTH_CACHE_KEY);
   if (isNative) {
     localDb.clearUserProfile();
+    localDb.clearAll().catch(err => console.error('Failed to clear localDb on logout:', err));
   }
 };
 
@@ -140,10 +141,17 @@ export const AuthProvider = ({ children }) => {
             }
           }
         } else {
-          // Web offline logic: do not support offline authentication
-          console.log('Server auth unavailable and offline access disabled for web.');
-          setUser(null);
-          setIsAuthenticated(false);
+          // Web client: only log out if the server explicitly returned 401 Unauthorized.
+          // If it is a network error (no status) or another server error, keep the user logged in.
+          if (error.status === 401) {
+            console.log('Session expired or unauthorized. Logging out.');
+            setUser(null);
+            setIsAuthenticated(false);
+            clearToken();
+            clearCachedUser();
+          } else {
+            console.warn('Network/server error during session check. Retaining local session state:', error);
+          }
         }
       } finally {
         if (isMounted) {
@@ -205,14 +213,15 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (email, password, masterPasswordHint) => {
+  const register = async (email, password, masterPasswordHint, registrationKey) => {
     setIsLoading(true);
     try {
       if (isExtension) {
         const response = await api.post('/auth/register', { 
           email, 
           password, 
-          masterPasswordHint 
+          masterPasswordHint,
+          registrationKey
         });
         if (response.success) {
           await chrome.runtime.sendMessage({
@@ -230,7 +239,8 @@ export const AuthProvider = ({ children }) => {
       const response = await api.post('/auth/register', { 
         email, 
         password, 
-        masterPasswordHint 
+        masterPasswordHint,
+        registrationKey
       });
       if (response.success) {
         setToken(response.token);
@@ -259,7 +269,6 @@ export const AuthProvider = ({ children }) => {
         await api.post('/auth/logout');
         if (isNative) {
           localStorage.removeItem('vaultguard_mobile_keep_unlocked');
-          localStorage.removeItem('vaultguard_mobile_biometric_unlock');
           if (user?.email) {
             await mobileAuth.clearSecureCredentials(user.email);
           }
@@ -277,8 +286,36 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const deleteAccount = async () => {
+    setIsLoading(true);
+    try {
+      if (isExtension) {
+        await api.delete('/auth/delete-account');
+        await chrome.runtime.sendMessage({ action: 'LOCK_VAULT' });
+      } else {
+        await api.delete('/auth/delete-account');
+        if (isNative) {
+          localStorage.removeItem('vaultguard_mobile_keep_unlocked');
+          if (user?.email) {
+            await mobileAuth.clearSecureCredentials(user.email);
+          }
+          await mobileAuth.clearAutoUnlockPassword();
+        }
+      }
+    } catch (error) {
+      console.error('Account deletion failed:', error);
+      throw error;
+    } finally {
+      clearToken();
+      clearCachedUser();
+      setUser(null);
+      setIsAuthenticated(false);
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

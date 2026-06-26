@@ -14,9 +14,22 @@ import { useAutoLock } from '../hooks/useAutoLock';
 import { useCrypto } from '../contexts/CryptoContext';
 import { isExtension } from '../utils/platform';
 import { getDomain, domainsMatch } from '../utils/helpers';
+import { vaultBridge } from '../services/android/vaultBridge';
+
 
 export default function VaultPage() {
   const { lock } = useCrypto();
+  const [isAutofillMode, setIsAutofillMode] = useState(false);
+
+  // Check autofill mode on mount
+  useEffect(() => {
+    const checkAutofill = async () => {
+      const mode = await vaultBridge.isAutofillMode();
+      setIsAutofillMode(mode);
+    };
+    checkAutofill();
+  }, []);
+
   const { 
     entries, 
     isLoading, 
@@ -188,8 +201,13 @@ export default function VaultPage() {
   });
 
   const handleSelectEntry = (entry) => {
+    if (isAutofillMode) {
+      vaultBridge.selectCredential(entry.username, entry.password);
+      return;
+    }
     setSelectedEntry(entry);
   };
+
 
   const handleCloseDetail = () => {
     setSelectedEntry(null);
@@ -365,15 +383,16 @@ export default function VaultPage() {
     setCurrentView('vault');
   };
 
-  if (isExtension) {
+  if (isExtension || isAutofillMode) {
     return (
-      <div className="flex flex-col h-screen w-full bg-bg-dark text-text-primary overflow-hidden font-sans select-none" style={{ width: '380px', height: '600px' }}>
+      <div className="flex flex-col h-screen w-full bg-bg-dark text-text-primary overflow-hidden font-sans select-none" style={isAutofillMode ? { width: '100%', height: '100%' } : { width: '380px', height: '600px' }}>
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border-dark bg-surface-dark shrink-0">
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-accent-teal" />
-            <span className="font-extrabold text-base tracking-tight text-white">VaultGuard</span>
+            <span className="font-extrabold text-base tracking-tight text-white">{isAutofillMode ? 'VaultGuard Autofill' : 'VaultGuard'}</span>
           </div>
+
           <div className="flex items-center gap-3">
             <ServerStatus />
             <button 

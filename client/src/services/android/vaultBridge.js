@@ -34,5 +34,26 @@ export const vaultBridge = {
       console.warn('VaultBridge diagnose not available:', err.message);
       return { status: 'UNAVAILABLE', message: err.message, count: 0 };
     }
+  },
+
+  async isAutofillMode() {
+    try {
+      const result = await VaultBridge.isAutofillMode();
+      return result.isAutofill || false;
+    } catch (err) {
+      console.warn('VaultBridge isAutofillMode not available:', err.message);
+      return false;
+    }
+  },
+
+  async selectCredential(username, password) {
+    try {
+      await VaultBridge.selectCredential({ username, password });
+      return true;
+    } catch (err) {
+      console.warn('VaultBridge selectCredential not available:', err.message);
+      return false;
+    }
   }
 };
+

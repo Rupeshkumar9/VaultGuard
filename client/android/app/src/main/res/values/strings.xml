@@ -4,4 +4,6 @@
     <string name="title_activity_main">VaultGuard</string>
     <string name="package_name">com.vaultguard.app</string>
     <string name="custom_url_scheme">com.vaultguard.app</string>
+    <string name="process_text_label">Open VaultGuard</string>
 </resources>
+

@@ -14,6 +14,18 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "VaultBridge")
 public class VaultBridgePlugin extends Plugin {
 
+    private static AutofillActivity activeAutofillActivity = null;
+
+    public static void registerAutofillActivity(AutofillActivity activity) {
+        activeAutofillActivity = activity;
+    }
+
+    public static void unregisterAutofillActivity(AutofillActivity activity) {
+        if (activeAutofillActivity == activity) {
+            activeAutofillActivity = null;
+        }
+    }
+
     private static final String PREFS_FILE = "vaultguard_secure_prefs";
     private static final String KEY_ENTRIES = "decrypted_entries";
 
@@ -118,5 +130,32 @@ public class VaultBridgePlugin extends Plugin {
             result.put("count", 0);
         }
         call.resolve(result);
+    }
+
+    @PluginMethod
+    public void isAutofillMode(PluginCall call) {
+        JSObject result = new JSObject();
+        boolean isAutofill = (getActivity() instanceof AutofillActivity);
+        result.put("isAutofill", isAutofill);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void selectCredential(PluginCall call) {
+        final String username = call.getString("username");
+        final String password = call.getString("password");
+
+        if (activeAutofillActivity != null) {
+            final AutofillActivity activity = activeAutofillActivity;
+            activity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    activity.onCredentialSelected(username, password);
+                }
+            });
+            call.resolve();
+        } else {
+            call.reject("No active Autofill activity found");
+        }
     }
 }

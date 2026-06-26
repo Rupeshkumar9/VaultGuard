@@ -1,6 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const VaultEntry = require('../models/VaultEntry');
 const { protect } = require('../middleware/auth');
 
 const router = express.Router();
@@ -37,7 +38,7 @@ const sendTokenResponse = (user, statusCode, res) => {
 // ──────────────────────────────────────────────
 router.post('/register', async (req, res, next) => {
   try {
-    const { email, password, masterPasswordHint } = req.body;
+    const { email, password, masterPasswordHint, registrationKey } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -46,13 +47,12 @@ router.post('/register', async (req, res, next) => {
       });
     }
 
-    // Check if a user already exists (single user app)
-    const existingUserCount = await User.countDocuments();
-    if (existingUserCount > 0) {
+    // Always require registration key validation
+    const serverKey = process.env.REGISTRATION_KEY;
+    if (!serverKey || registrationKey !== serverKey) {
       return res.status(403).json({
         success: false,
-        message:
-          'Registration is closed. This is a single-user password manager.',
+        message: 'Invalid registration key. To request a key, email rupeshkumar45670234@gmail.com.',
       });
     }
 
@@ -141,6 +141,38 @@ router.get('/me', protect, async (req, res) => {
       masterPasswordHint: req.user.masterPasswordHint,
     },
   });
+});
+
+// ──────────────────────────────────────────────
+// DELETE /api/auth/delete-account
+// Delete current user account and all vault entries
+// ──────────────────────────────────────────────
+router.delete('/delete-account', protect, async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+
+    // 1. Delete all vault entries belonging to the user
+    await VaultEntry.deleteMany({ user: userId });
+
+    // 2. Delete the user account
+    await User.findByIdAndDelete(userId);
+
+    // 3. Clear cookie
+    const cookieOptions = {
+      expires: new Date(Date.now() + 5 * 1000), // 5 seconds
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true',
+      sameSite: process.env.COOKIE_SAME_SITE || (process.env.NODE_ENV === 'production' ? 'none' : 'lax'),
+    };
+    res.cookie('token', 'none', cookieOptions);
+
+    res.status(200).json({
+      success: true,
+      message: 'Account and all vault data deleted successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 module.exports = router;

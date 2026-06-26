@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCrypto } from '../contexts/CryptoContext';
 import { isExtension, isNative } from '../utils/platform';
-import { mobileAuth } from '../services/mobileAuth';
+import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -47,10 +47,8 @@ export default function LoginPage() {
             await mobileAuth.clearAutoUnlockPassword();
           }
 
-          // If biometric is enabled, sync secure credentials
-          if (localStorage.getItem('vaultguard_mobile_biometric_unlock') === 'true') {
-            await mobileAuth.saveSecureCredentials(email, password);
-          }
+          // Always save secure credentials in device KeyStore/Keychain for biometrics/device lock
+          await mobileAuth.saveSecureCredentials(email, password);
         }
 
         // 3. Redirect to the main vault page

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCrypto } from '../contexts/CryptoContext';
-import { isExtension } from '../utils/platform';
+import { isExtension, isNative } from '../utils/platform';
+import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function RegisterPage() {
   const { register, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -11,6 +12,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [masterPasswordHint, setMasterPasswordHint] = useState('');
+  const [registrationKey, setRegistrationKey] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -41,12 +43,17 @@ export default function RegisterPage() {
 
     try {
       // 2. Register the master account on the backend
-      const res = await register(email, password, masterPasswordHint);
+      const res = await register(email, password, masterPasswordHint, registrationKey);
       
       if (res && res.success) {
         // 3. Unlock the client-side cryptosystem using the same password
         await unlock(password, true);
         
+        // Save mobile credentials securely in KeyStore/Keychain for biometrics/device lock
+        if (isNative) {
+          await mobileAuth.saveSecureCredentials(email, password);
+        }
+
         // 4. Navigate to vault dashboard
         navigate('/');
       }
@@ -98,6 +105,23 @@ export default function RegisterPage() {
                 className="w-full px-3 py-1.5 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all text-xs"
                 placeholder="admin@vaultguard.local"
               />
+            </div>
+
+            <div className="space-y-0.5">
+              <label className="block text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
+                Secret Registration Key
+              </label>
+              <input
+                type="text"
+                required
+                value={registrationKey}
+                onChange={(e) => setRegistrationKey(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all text-xs"
+                placeholder="Key (request via email)"
+              />
+              <p className="text-[7.5px] text-text-secondary/70 leading-normal">
+                If you need a key, email <a href="mailto:rupeshkumar45670234@gmail.com" onClick={(e) => { e.preventDefault(); const w = window.open('', '_blank'); if (w) w.location.href = 'mailto:rupeshkumar45670234@gmail.com'; }} className="text-accent-teal hover:underline font-bold">rupeshkumar45670234@gmail.com</a>.
+              </p>
             </div>
 
             <div className="space-y-0.5">
@@ -220,6 +244,23 @@ export default function RegisterPage() {
               className="w-full px-4 py-3 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all text-sm"
               placeholder="admin@vaultguard.local"
             />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider">
+              Secret Registration Key
+            </label>
+            <input
+              type="text"
+              required
+              value={registrationKey}
+              onChange={(e) => setRegistrationKey(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all text-sm"
+              placeholder="Enter your secret registration key"
+            />
+            <p className="text-[10px] text-text-secondary/80 leading-normal">
+              * If you do not have a registration key, please email <a href="mailto:rupeshkumar45670234@gmail.com" onClick={(e) => { e.preventDefault(); const w = window.open('', '_blank'); if (w) w.location.href = 'mailto:rupeshkumar45670234@gmail.com'; }} className="text-accent-teal hover:underline font-bold">rupeshkumar45670234@gmail.com</a> to request access.
+            </p>
           </div>
 
           <div className="space-y-1">

@@ -69,6 +69,17 @@ export const mobileAuth = {
       const isAvailable = await this.checkBiometricAvailable();
       if (!isAvailable) return null;
 
+      // 1. Prompt system biometric or pattern/PIN passcode verification
+      await NativeBiometric.verifyIdentity({
+        reason: "Unlock your VaultGuard secure database",
+        title: "Biometric Unlock",
+        subtitle: "Scan your fingerprint/face or enter your device PIN/pattern to unlock your vault",
+        description: "Provide your biometric credentials to access your passwords.",
+        negativeButtonText: "Cancel",
+        useFallback: true
+      });
+
+      // 2. If verified, retrieve credentials from secure storage
       const credentials = await NativeBiometric.getCredentials({
         username: email,
         server: "vaultguard.auth"

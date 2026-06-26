@@ -1,9 +1,9 @@
 import React, { createContext, useState, useRef, useContext, useEffect } from 'react';
 import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy, exportKeyToBase64, importKeyFromBase64 } from '../services/crypto';
 import { useAuth } from './AuthContext';
-import { isExtension } from '../utils/platform';
+import { isExtension, isNative } from '../utils/platform';
 import { api } from '../services/api';
-import { localDb } from '../services/localDb';
+import { localDb } from '../services/android/localDb';
 
 const CryptoContext = createContext(null);
 
@@ -64,18 +64,29 @@ export const CryptoProvider = ({ children }) => {
       // 2. Perform verification
       let isVerified = false;
 
-      // Try local verification first if offline or we have cached ciphers
-      const cachedEntries = await localDb.getAllEntries();
-      const testEntry = cachedEntries.find(e => e.encryptedData && e.iv && e.salt);
-
-      if (testEntry) {
+      // Try local verification first if offline or we have cached ciphers (only on mobile)
+      if (isNative) {
         try {
-          if (testEntry.salt === 'migrated' || testEntry.salt === 'none' || !testEntry.salt) {
-            await decryptWithKey(testEntry.encryptedData, testEntry.iv, derivedKey);
+          const cachedProfile = await localDb.getUserProfile();
+          const isSameUser = cachedProfile && cachedProfile.email && cachedProfile.email.toLowerCase() === user.email.toLowerCase();
+
+          if (isSameUser) {
+            const cachedEntries = await localDb.getAllEntries();
+            const testEntry = cachedEntries.find(e => e.encryptedData && e.iv && e.salt);
+
+            if (testEntry) {
+              if (testEntry.salt === 'migrated' || testEntry.salt === 'none' || !testEntry.salt) {
+                await decryptWithKey(testEntry.encryptedData, testEntry.iv, derivedKey);
+              } else {
+                await decryptLegacy(testEntry.encryptedData, testEntry.iv, testEntry.salt, password);
+              }
+              isVerified = true;
+            }
           } else {
-            await decryptLegacy(testEntry.encryptedData, testEntry.iv, testEntry.salt, password);
+            // Different user logging in on mobile: clear previous user's old cache to prevent cross-contamination
+            await localDb.clearAll();
+            await localDb.clearUserProfile();
           }
-          isVerified = true;
         } catch (decryptErr) {
           // Decryption failed. Since testEntry exists, the password must be incorrect.
           console.error('Local verification failed. Wrong master password:', decryptErr);

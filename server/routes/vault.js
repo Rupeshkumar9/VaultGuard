@@ -206,7 +206,7 @@ router.patch('/:id/last-used', async (req, res, next) => {
     const entry = await VaultEntry.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
       { lastUsed: new Date() },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!entry) {
@@ -356,7 +356,7 @@ router.delete('/:id', async (req, res, next) => {
     const entry = await VaultEntry.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
       { $set: { isInTrash: true, isFavorite: false } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!entry) {
@@ -411,7 +411,7 @@ router.post('/:id/restore', async (req, res, next) => {
     const entry = await VaultEntry.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
       { $set: { isInTrash: false } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!entry) {
