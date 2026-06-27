@@ -23,6 +23,7 @@ lerna-debug.log*
 .vscode/
 !.vscode/extensions.json
 .idea/
+CODEBASE_STUDY_ROADMAP.md
 *.suo
 *.ntvs*
 *.njsproj

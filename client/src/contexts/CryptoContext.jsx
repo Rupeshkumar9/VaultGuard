@@ -11,13 +11,41 @@ export const CryptoProvider = ({ children }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const masterPasswordRef = useRef('');
   const masterKeyRef = useRef(null);
-  const { isAuthenticated, user, login, logout } = useAuth();
+  const { isAuthenticated, user, login, logout, lock: authLock } = useAuth();
 
-  // If running in extension, sync unlock state with auth state
+  // If running in extension, sync unlock state with GET_STATUS and listen to background events
   useEffect(() => {
-    if (isExtension) {
-      setIsUnlocked(isAuthenticated);
-    }
+    if (!isExtension) return;
+    
+    let isMounted = true;
+    const checkUnlockState = async () => {
+      try {
+        const response = await chrome.runtime.sendMessage({ action: 'GET_STATUS' });
+        if (isMounted && response) {
+          setIsUnlocked(response.isUnlocked);
+        }
+      } catch (err) {
+        console.error('Failed to query unlock state:', err);
+      }
+    };
+    
+    checkUnlockState();
+    
+    const messageListener = (message) => {
+      if (message.action === 'VAULT_LOCKED') {
+        console.log('🔒 Vault locked message received from background. Lock UI.');
+        setIsUnlocked(false);
+      } else if (message.action === 'VAULT_SYNCED') {
+        console.log('🔓 Vault synced message received from background. Unlock UI.');
+        setIsUnlocked(true);
+      }
+    };
+    chrome.runtime.onMessage.addListener(messageListener);
+    
+    return () => {
+      isMounted = false;
+      chrome.runtime.onMessage.removeListener(messageListener);
+    };
   }, [isAuthenticated]);
 
   // If user logs out, lock the vault automatically (web/mobile only)
@@ -49,7 +77,24 @@ export const CryptoProvider = ({ children }) => {
   const unlock = async (password, isAlreadyVerified = false) => {
     if (isExtension) {
       // In extension popup, unlocking is done by logging in (which calls UNLOCK_VAULT in background)
-      return await login(user?.email || '', password);
+      let emailVal = user?.email;
+      if (!emailVal) {
+        try {
+          const cached = localStorage.getItem('vaultguard_cached_user');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            emailVal = parsed?.email;
+          }
+        } catch (e) {
+          console.warn('Failed to parse cached user for unlock:', e);
+        }
+      }
+      const res = await login(emailVal || '', password);
+      if (res && res.success) {
+        setIsUnlocked(true);
+        return true;
+      }
+      return false;
     }
 
     if (!password) return false;
@@ -134,7 +179,11 @@ export const CryptoProvider = ({ children }) => {
 
   const lock = async () => {
     if (isExtension) {
-      await logout();
+      if (authLock) {
+        await authLock();
+      } else {
+        await logout();
+      }
       return;
     }
     masterPasswordRef.current = '';

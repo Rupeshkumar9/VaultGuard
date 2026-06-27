@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }) => {
       try {
         const response = await chrome.runtime.sendMessage({ action: 'GET_STATUS' });
         if (!isMounted) return;
-        if (response && response.isUnlocked && response.user) {
+        if (response && response.user) {
           setUser(response.user);
           setIsAuthenticated(true);
         } else {
@@ -186,6 +186,7 @@ export const AuthProvider = ({ children }) => {
           rememberVault: true,
         });
         if (response.success) {
+          cacheUser(response.user);
           setUser(response.user);
           setIsAuthenticated(true);
           return response;
@@ -230,6 +231,7 @@ export const AuthProvider = ({ children }) => {
             masterPassword: password,
             rememberVault: true,
           });
+          cacheUser(response.user);
           setUser(response.user);
           setIsAuthenticated(true);
           return response;
@@ -286,6 +288,28 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const lock = async () => {
+    setIsLoading(true);
+    try {
+      if (isExtension) {
+        await chrome.runtime.sendMessage({ action: 'LOCK_VAULT' });
+      }
+    } catch (error) {
+      console.error('Lock request failed:', error);
+    } finally {
+      clearToken();
+      const cached = getCachedUser();
+      if (cached) {
+        setUser(cached);
+        setIsAuthenticated(true);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
+      setIsLoading(false);
+    }
+  };
+
   const deleteAccount = async () => {
     setIsLoading(true);
     try {
@@ -315,7 +339,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, deleteAccount }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, lock, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

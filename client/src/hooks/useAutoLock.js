@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useCrypto } from '../contexts/CryptoContext';
+import { isExtension } from '../utils/platform';
 
 export const useAutoLock = () => {
   const { isUnlocked, lock } = useCrypto();
   const timerRef = useRef(null);
+  const lastMessageSent = useRef(0);
 
   useEffect(() => {
     if (!isUnlocked) {
@@ -28,6 +30,17 @@ export const useAutoLock = () => {
         console.log('🔒 Vault auto-locked due to inactivity.');
         lock();
       }, timeoutMs);
+
+      // Throttled notification to background script
+      if (isExtension) {
+        const now = Date.now();
+        if (now - lastMessageSent.current > 30 * 1000) {
+          lastMessageSent.current = now;
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage({ action: 'USER_ACTIVITY' }).catch(() => {});
+          }
+        }
+      }
     };
 
     // Events to track user activity

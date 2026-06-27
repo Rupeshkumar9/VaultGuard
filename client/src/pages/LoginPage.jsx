@@ -22,6 +22,21 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, isAuthLoading, navigate]);
 
+  useEffect(() => {
+    // Pre-fill email from cached user if available
+    const cached = localStorage.getItem('vaultguard_cached_user');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.email) {
+          setEmail(parsed.email);
+        }
+      } catch (e) {
+        console.warn('Failed to parse cached user for email pre-fill:', e);
+      }
+    }
+  }, []);
+
 
 
   const handleSubmit = async (e) => {
@@ -35,7 +50,9 @@ export default function LoginPage() {
       
       if (res && res.success) {
         // 2. Cache master password in CryptoContext to enable client-side encryption
-        await unlock(password, true);
+        if (!isExtension) {
+          await unlock(password, true);
+        }
         
         // Save mobile preferences
         if (isNative) {

@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCrypto } from '../../contexts/CryptoContext';
-import { isNative } from '../../utils/platform';
+import { isNative, isExtension } from '../../utils/platform';
 import { mobileAuth } from '../../services/android/mobileAuth';
 
 export const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
   const { isUnlocked, unlock } = useCrypto();
   const [unlockPassword, setUnlockPassword] = useState('');
   const [error, setError] = useState('');
@@ -91,19 +91,21 @@ export const ProtectedRoute = ({ children }) => {
     };
 
     return (
-      <div className="min-h-screen bg-bg-dark flex flex-col items-center justify-center px-4">
-        <div className="max-w-md w-full p-8 rounded-2xl bg-surface-dark border border-border-dark shadow-2xl backdrop-blur-xl space-y-6">
+      <div className={`min-h-screen bg-bg-dark flex flex-col items-center justify-center px-4 ${isExtension ? 'w-[380px] h-[600px] min-h-0 p-3 select-none' : ''}`}>
+        <div className={`max-w-md w-full rounded-2xl bg-surface-dark border border-border-dark shadow-2xl backdrop-blur-xl space-y-6 ${isExtension ? 'p-5 space-y-4' : 'p-8 space-y-6'}`}>
           <div className="text-center space-y-2">
-            <div className="inline-flex w-14 h-14 rounded-2xl bg-accent-glow items-center justify-center border border-accent-teal/20 mb-2">
-              <span className="text-2xl">🔒</span>
+            <div className={`inline-flex rounded-2xl bg-accent-glow items-center justify-center border border-accent-teal/20 ${isExtension ? 'w-10 h-10 mb-1' : 'w-14 h-14 mb-2'}`}>
+              <span className={isExtension ? 'text-lg' : 'text-2xl'}>🔒</span>
             </div>
-            <h2 className="text-2xl font-bold tracking-tight text-text-primary">Vault Locked</h2>
+            <h2 className={`${isExtension ? 'text-lg' : 'text-2xl'} font-bold tracking-tight text-text-primary`}>Vault Locked</h2>
             <p className="text-text-secondary text-xs">
-              Your session is active, but your vault keys are cleared from memory. Enter your master password to unlock.
+              {isExtension 
+                ? `Enter master password for ${user?.email || 'your account'} to unlock.`
+                : 'Your session is active, but your vault keys are cleared from memory. Enter your master password to unlock.'}
             </p>
           </div>
 
-          <form onSubmit={handleUnlockSubmit} className="space-y-4">
+          <form onSubmit={handleUnlockSubmit} className={isExtension ? 'space-y-3' : 'space-y-4'}>
             <div>
               <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 Master Password
@@ -113,7 +115,7 @@ export const ProtectedRoute = ({ children }) => {
                 required
                 value={unlockPassword}
                 onChange={(e) => setUnlockPassword(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/50 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all text-sm"
+                className={`w-full px-4 py-3 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/50 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all ${isExtension ? 'text-xs py-2' : 'text-sm'}`}
                 placeholder="••••••••••••••••"
               />
             </div>
@@ -126,7 +128,7 @@ export const ProtectedRoute = ({ children }) => {
 
             <button
               type="submit"
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-accent-teal to-cyan-500 text-bg-dark font-semibold text-sm hover:opacity-90 active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-accent-teal/10 mb-2"
+              className={`w-full py-3 rounded-lg bg-gradient-to-r from-accent-teal to-cyan-500 text-bg-dark font-semibold text-sm hover:opacity-90 active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-accent-teal/10 ${isExtension ? 'py-2 text-xs mb-1' : 'mb-2'}`}
             >
               Unlock Vault
             </button>
@@ -141,6 +143,16 @@ export const ProtectedRoute = ({ children }) => {
                 <span>Unlock with Biometrics / System Lock</span>
               </button>
             )}
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={logout}
+                className="text-xs text-accent-teal hover:underline font-semibold cursor-pointer"
+              >
+                Log out / Switch account
+              </button>
+            </div>
           </form>
         </div>
       </div>

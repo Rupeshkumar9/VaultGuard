@@ -114,6 +114,7 @@ async function startAutoLockTimer() {
 async function resetAutoLockTimer() {
   const session = await chrome.storage.session.get(['masterPassword']);
   if (session.masterPassword) {
+    await chrome.storage.session.set({ lastActive: Date.now() });
     startAutoLockTimer();
   }
 }
@@ -209,6 +210,23 @@ async function getMasterKey(masterPassword) {
   return await deriveMasterKey(masterPassword, email);
 }
 
+// Check if the vault should be locked based on inactivity elapsed time
+async function checkInactivityLock() {
+  const session = await chrome.storage.session.get(['masterPassword', 'lastActive']);
+  if (!session.masterPassword) return; // Already locked
+
+  const settings = await chrome.storage.local.get(['lockTimeout']);
+  const minutes = parseInt(settings.lockTimeout || '5', 10);
+  if (minutes === 0) return; // 0 means Never Lock
+
+  const lastActive = session.lastActive || Date.now();
+  const elapsedMs = Date.now() - lastActive;
+  if (elapsedMs >= minutes * 60 * 1000) {
+    console.log('🔒 Vault auto-locked due to inactivity (checked on message receipt).');
+    await lockVault();
+  }
+}
+
 // ──── Main Message Router ────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   resetAutoLockTimer();
@@ -216,6 +234,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Standard Chrome message passing is asynchronous if we return true
   const handleMessage = async () => {
     try {
+      await checkInactivityLock();
       switch (message.action) {
         case 'GET_SERVER_URL': {
           const settings = await chrome.storage.local.get(['serverUrl']);
@@ -355,9 +374,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         case 'GET_STATUS': {
           const session = await chrome.storage.session.get(['masterPassword', 'user']);
+          const settings = await chrome.storage.local.get(['cachedUser']);
           return { 
             isUnlocked: !!session.masterPassword, 
-            user: session.user || null 
+            user: session.user || settings.cachedUser || null 
           };
         }
         case 'SYNC_VAULT': {
