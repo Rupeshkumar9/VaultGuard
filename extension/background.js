@@ -1,0 +1,901 @@
+/**
+ * VaultGuard - Zero-Knowledge Password Manager
+ * Developed by Rupesh (https://github.com/rupeshkumar9)
+ */
+
+import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from './crypto-helper.js';
+import { localDb } from './local-db.js';
+import { parseSiteIdentity, sitesMatch } from '../client/src/utils/siteIdentity.js';
+
+const AUTO_LOCK_ALARM = 'vaultguard-auto-lock';
+const MAX_FIELD_LENGTH = 10000;
+const CONTENT_SCRIPT_ACTIONS = new Set([
+  'GET_MATCHING_METADATA',
+  'GET_CREDENTIAL_FOR_FILL',
+  'CHECK_CREDENTIAL_FOR_SAVE',
+  'SAVE_CREDENTIAL',
+  'UPDATE_CREDENTIAL',
+  'SET_PENDING_CREDENTIAL',
+  'GET_PENDING_CREDENTIAL',
+  'CLEAR_PENDING_CREDENTIAL',
+  'USER_ACTIVITY',
+]);
+
+// Keep secrets available only to trusted extension pages and the service worker.
+// Popup pages are trusted contexts; content scripts must not read this storage.
+if (chrome.storage.session && typeof chrome.storage.session.setAccessLevel === 'function') {
+  chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
+    .catch(err => console.log('Session storage access level already configured or unsupported:', err));
+}
+if (chrome.storage.local && typeof chrome.storage.local.setAccessLevel === 'function') {
+  chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
+    .catch(err => console.log('Local storage access level could not be restricted:', err));
+}
+
+function isTrustedExtensionSender(sender) {
+  return !sender?.tab && typeof sender?.url === 'string' &&
+    sender.url.startsWith(chrome.runtime.getURL(''));
+}
+
+function isContentScriptSender(sender) {
+  return !!sender?.tab && !!parseSiteIdentity(sender.url || sender.tab.url || '');
+}
+
+function assertAuthorizedSender(action, sender) {
+  if (isTrustedExtensionSender(sender)) return;
+  if (isContentScriptSender(sender) && CONTENT_SCRIPT_ACTIONS.has(action)) return;
+  throw new Error('This extension context is not authorized for that action.');
+}
+
+function getSenderSite(sender) {
+  const identity = parseSiteIdentity(sender?.url || sender?.tab?.url || '');
+  if (!identity) throw new Error('Unable to determine the requesting site.');
+  return identity;
+}
+
+function boundedString(value, field, { required = false, max = MAX_FIELD_LENGTH, trim = true } = {}) {
+  if (value == null && !required) return '';
+  if (typeof value !== 'string') throw new Error(`${field} must be text.`);
+  const result = trim ? value.trim() : value;
+  if (required && !result) throw new Error(`${field} is required.`);
+  if (result.length > max) throw new Error(`${field} is too long.`);
+  return result;
+}
+
+function credentialId(value) {
+  const id = boundedString(value, 'Credential ID', { required: true, max: 64 });
+  if (!/^[a-f\d]{24}$/i.test(id)) throw new Error('Credential ID is invalid.');
+  return id;
+}
+
+function normalizeServerUrl(value) {
+  const identity = parseSiteIdentity(value);
+  if (!identity) throw new Error('A valid HTTP(S) server URL is required.');
+  const isLocal = identity.hostname === 'localhost' || identity.hostname === '127.0.0.1';
+  if (identity.protocol !== 'https:' && !isLocal) {
+    throw new Error('The server URL must use HTTPS.');
+  }
+  return identity.origin;
+}
+
+async function getConfiguredServerUrl() {
+  const { serverUrl } = await chrome.storage.local.get(['serverUrl']);
+  if (!serverUrl) {
+    throw new Error('Server URL is not configured. Open the VaultGuard extension once.');
+  }
+  return normalizeServerUrl(serverUrl);
+}
+
+// ──── Session Restoration on Startup ────
+async function restoreSessionOnStartup() {
+  try {
+    const [session, settings] = await Promise.all([
+      chrome.storage.session.get(['masterPassword']),
+      chrome.storage.local.get(['rememberVault', 'masterPassword', 'token', 'user', 'vaultExplicitlyLocked'])
+    ]);
+
+    let rememberedSession = null;
+    if (settings.rememberVault && !settings.vaultExplicitlyLocked) {
+      rememberedSession = await localDb.getRememberedSession();
+      if (!rememberedSession && settings.masterPassword) {
+        // One-time migration from versions that stored restart credentials in plaintext.
+        rememberedSession = {
+          masterPassword: settings.masterPassword,
+          token: settings.token,
+          user: settings.user
+        };
+        await localDb.saveRememberedSession(rememberedSession);
+        await chrome.storage.local.remove(['masterPassword', 'token', 'user']);
+      }
+    }
+
+    // Do not overwrite an already-restored session or undo an explicit/automatic lock.
+    if (!session.masterPassword && rememberedSession?.masterPassword) {
+      await chrome.storage.session.set({
+        masterPassword: rememberedSession.masterPassword,
+        token: rememberedSession.token,
+        user: rememberedSession.user,
+        lastActive: Date.now()
+      });
+      if (rememberedSession.user) {
+        await chrome.storage.local.set({
+          cachedUser: {
+            id: rememberedSession.user.id || rememberedSession.user._id,
+            email: rememberedSession.user.email
+          }
+        });
+      }
+      console.log('🔓 Extension session restored from local storage.');
+      await scheduleAutoLockAlarm();
+      chrome.runtime.sendMessage({ action: 'VAULT_RESTORED' }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('Session restoration failed:', err);
+  }
+}
+
+// All events share the same initialization promise so a cold-start message cannot
+// observe storage.session before restoration finishes.
+let initializationPromise;
+function ensureInitialized() {
+  if (!initializationPromise) {
+    initializationPromise = restoreSessionOnStartup().catch((error) => {
+      initializationPromise = null;
+      throw error;
+    });
+  }
+  return initializationPromise;
+}
+
+void ensureInitialized();
+
+// Register synchronously so Chrome can wake this MV3 worker at profile startup.
+chrome.runtime.onStartup.addListener(() => {
+  void ensureInitialized();
+});
+
+// ──── API Fetch Wrapper ────
+async function apiRequest(endpoint, method = 'GET', body = null) {
+  const serverUrl = await getConfiguredServerUrl();
+  const cleanEndpoint = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
+  const url = `${serverUrl}${cleanEndpoint}`;
+
+  // Get session info for auth token
+  const session = await chrome.storage.session.get(['token']);
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  if (session.token) {
+    headers['Authorization'] = `Bearer ${session.token}`;
+  }
+
+  const config = {
+    method,
+    headers,
+  };
+  if (body) {
+    config.body = JSON.stringify(body);
+  }
+
+  try {
+    const response = await fetch(url, config);
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.message || 'API Request failed');
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  } catch (error) {
+    console.error('API Fetch Error:', error);
+    if (error.status) throw error;
+    throw new Error(error.message || 'Failed to communicate with VaultGuard server.');
+  }
+}
+
+// ──── Session and Locking Management ────
+async function lockVault({ forgetPersistent = false } = {}) {
+  await chrome.alarms.clear(AUTO_LOCK_ALARM);
+  // Clear session storage keys
+  await chrome.storage.session.remove(['masterPassword', 'token', 'user', 'encryptedEntries']);
+
+  // Prevent a later worker restart from silently undoing this lock.
+  await chrome.storage.local.set({ vaultExplicitlyLocked: true });
+  if (forgetPersistent) {
+    await localDb.clearRememberedSession();
+    await chrome.storage.local.remove(['masterPassword', 'token', 'user']);
+    await chrome.storage.local.set({ rememberVault: false });
+  }
+  
+  // Notify popup and content scripts if any are active
+  chrome.runtime.sendMessage({ action: 'VAULT_LOCKED' }).catch(() => {});
+}
+
+async function scheduleAutoLockAlarm() {
+  await chrome.alarms.clear(AUTO_LOCK_ALARM);
+  const settings = await chrome.storage.local.get(['lockTimeout']);
+  const minutes = parseInt(settings.lockTimeout || '5', 10);
+  if (minutes === 0) return; // 0 means Never Lock
+  await chrome.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: minutes });
+}
+
+// Reset the lock timer on user activity
+async function resetAutoLockTimer() {
+  const session = await chrome.storage.session.get(['masterPassword']);
+  if (session.masterPassword) {
+    await chrome.storage.session.set({ lastActive: Date.now() });
+    await scheduleAutoLockAlarm();
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== AUTO_LOCK_ALARM) return;
+  void ensureInitialized()
+    .then(() => checkInactivityLock())
+    .catch((error) => console.error('Auto-lock alarm failed:', error));
+});
+
+// ──── Sync Vault ────
+async function syncVault() {
+  const session = await chrome.storage.session.get(['masterPassword']);
+  if (!session.masterPassword) {
+    throw new Error('Vault is locked.');
+  }
+
+  try {
+    const response = await apiRequest('/vault');
+    if (response.success && response.data) {
+      // Store encrypted entries in both session and local IndexedDB database
+      await chrome.storage.session.set({ encryptedEntries: response.data });
+      await localDb.saveEntries(response.data);
+      // Notify popup that sync completed
+      chrome.runtime.sendMessage({ action: 'VAULT_SYNCED', count: response.data.length }).catch(() => {});
+      return { success: true, count: response.data.length };
+    } else {
+      throw new Error(response.message || 'Failed to fetch vault ciphers.');
+    }
+  } catch (error) {
+    console.error('Sync error:', error);
+    throw error;
+  }
+}
+
+// Helper to derive master key from stored master password and user email
+async function getMasterKey(masterPassword) {
+  const session = await chrome.storage.session.get(['user']);
+  let email = session.user?.email;
+  if (!email) {
+    const settings = await chrome.storage.local.get(['cachedUser', 'user']);
+    email = settings.user?.email || settings.cachedUser?.email;
+  }
+  if (!email) {
+    throw new Error('User email not found in session or cache.');
+  }
+  return await deriveMasterKey(masterPassword, email);
+}
+
+// Check if the vault should be locked based on inactivity elapsed time
+async function checkInactivityLock() {
+  const session = await chrome.storage.session.get(['masterPassword', 'lastActive']);
+  if (!session.masterPassword) return; // Already locked
+
+  const settings = await chrome.storage.local.get(['lockTimeout']);
+  const minutes = parseInt(settings.lockTimeout || '5', 10);
+  if (minutes === 0) return; // 0 means Never Lock
+
+  const lastActive = session.lastActive || Date.now();
+  const elapsedMs = Date.now() - lastActive;
+  if (elapsedMs >= minutes * 60 * 1000) {
+    console.log('🔒 Vault auto-locked due to inactivity (checked on message receipt).');
+    await lockVault();
+  }
+}
+
+async function loadEncryptedEntries(sessionEntries) {
+  if (sessionEntries) return sessionEntries;
+  const entries = await localDb.getAllEntries();
+  await chrome.storage.session.set({ encryptedEntries: entries });
+  return entries;
+}
+
+async function decryptSensitiveEntry(entry, masterKey, masterPassword) {
+  if (!entry?.encryptedData || !entry?.iv) {
+    return { username: '', password: '', notes: entry?.notes || '' };
+  }
+
+  const plaintext = entry.salt === 'migrated' || entry.salt === 'none' || !entry.salt
+    ? await decryptWithKey(entry.encryptedData, entry.iv, masterKey)
+    : await decryptLegacy(entry.encryptedData, entry.iv, entry.salt, masterPassword);
+  return JSON.parse(plaintext);
+}
+
+async function matchingEntriesForSite(pageUrl, session) {
+  const rawEntries = await loadEncryptedEntries(session.encryptedEntries);
+  return rawEntries.filter(entry => entry.website && sitesMatch(entry.website, pageUrl));
+}
+
+// ──── Main Message Router ────
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Standard Chrome message passing is asynchronous if we return true
+  const handleMessage = async () => {
+    try {
+      await ensureInitialized();
+      await checkInactivityLock();
+      if (!message || typeof message.action !== 'string') {
+        throw new Error('A valid message action is required.');
+      }
+      assertAuthorizedSender(message.action, sender);
+      switch (message.action) {
+        case 'GET_SERVER_URL': {
+          const settings = await chrome.storage.local.get(['serverUrl']);
+          return { serverUrl: settings.serverUrl || null };
+        }
+        case 'SET_SERVER_URL': {
+          const serverUrl = normalizeServerUrl(message.serverUrl);
+          await chrome.storage.local.set({ serverUrl });
+          return { success: true };
+        }
+        case 'SET_FRONTEND_URL': {
+          const frontendUrl = normalizeServerUrl(message.frontendUrl);
+          await chrome.storage.local.set({ frontendUrl });
+          return { success: true };
+        }
+        case 'OPEN_FRONTEND': {
+          const { frontendUrl } = await chrome.storage.local.get(['frontendUrl']);
+          if (!frontendUrl) throw new Error('Frontend URL is not configured in this extension build.');
+          await chrome.tabs.create({ url: normalizeServerUrl(frontendUrl) });
+          return { success: true };
+        }
+        case 'GET_LOCK_TIMEOUT': {
+          const settings = await chrome.storage.local.get(['lockTimeout']);
+          return { lockTimeout: settings.lockTimeout || '5' };
+        }
+        case 'SET_LOCK_TIMEOUT': {
+          const lockTimeout = String(message.lockTimeout);
+          if (!['0', '1', '5', '15', '30'].includes(lockTimeout)) {
+            throw new Error('Invalid lock timeout.');
+          }
+          await chrome.storage.local.set({ lockTimeout });
+          await scheduleAutoLockAlarm();
+          return { success: true };
+        }
+        case 'UNLOCK_VAULT': {
+          const email = boundedString(message.email, 'Email', { required: true, max: 320 }).toLowerCase();
+          const masterPassword = boundedString(message.masterPassword, 'Master password', { required: true, trim: false });
+          const rememberVault = message.rememberVault === true;
+          await chrome.storage.local.set({
+            rememberVault: !!rememberVault,
+            vaultExplicitlyLocked: false
+          });
+          
+          let unlockedLocally = false;
+          let userToUse = null;
+
+          try {
+            const settings = await chrome.storage.local.get(['cachedUser']);
+            const cachedUser = settings.cachedUser;
+            
+            if (cachedUser && cachedUser.email && cachedUser.email.toLowerCase() === email.toLowerCase()) {
+              const cachedEntries = await localDb.getAllEntries();
+              const testEntry = cachedEntries.find(e => e.encryptedData && e.iv && e.salt);
+              
+              if (testEntry) {
+                // Try to decrypt the entry to verify password
+                if (testEntry.salt === 'migrated' || testEntry.salt === 'none' || !testEntry.salt) {
+                  const masterKey = await deriveMasterKey(masterPassword, email);
+                  await decryptWithKey(testEntry.encryptedData, testEntry.iv, masterKey);
+                } else {
+                  await decryptLegacy(testEntry.encryptedData, testEntry.iv, testEntry.salt, masterPassword);
+                }
+                unlockedLocally = true;
+                userToUse = cachedUser;
+              }
+            }
+          } catch (err) {
+            console.log('Local decryption failed or no cache, will try server auth:', err);
+          }
+
+          if (unlockedLocally) {
+            // Restore cached token if it exists in local storage
+            const localSettings = await chrome.storage.local.get(['token']);
+            
+            // Unlock immediately using cached data
+            await chrome.storage.session.set({
+              user: userToUse,
+              masterPassword: masterPassword,
+              token: localSettings.token || null
+            });
+
+            // If rememberVault is enabled, save to local storage as well
+            if (rememberVault) {
+              await localDb.saveRememberedSession({
+                user: userToUse,
+                masterPassword,
+                token: localSettings.token || null
+              });
+              await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+            } else {
+              await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+            }
+
+            await resetAutoLockTimer();
+
+            // Keep online refresh inside the message lifetime so Chrome cannot
+            // terminate the worker while a required sync is still running.
+            try {
+              const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
+              if (loginRes.success) {
+                await chrome.storage.session.set({
+                  token: loginRes.token,
+                  user: loginRes.user
+                });
+                await chrome.storage.local.set({
+                  cachedUser: { id: loginRes.user.id || loginRes.user._id, email: loginRes.user.email }
+                });
+                if (rememberVault) {
+                  await localDb.saveRememberedSession({
+                    token: loginRes.token,
+                    user: loginRes.user,
+                    masterPassword
+                  });
+                }
+                await syncVault();
+              }
+            } catch (err) {
+              console.error('Background login/sync failed:', err);
+              if (err.status === 401) {
+                console.warn('Background login returned 401. Locking vault.');
+                await lockVault({ forgetPersistent: true });
+                return { success: false, error: 'Authentication expired. Please unlock again.' };
+              }
+            }
+
+            return { success: true, user: userToUse };
+          } else {
+            // Standard server-based authentication flow (for first login, different user, or changed password)
+            const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
+            if (loginRes.success) {
+              await chrome.storage.session.set({
+                token: loginRes.token,
+                user: loginRes.user,
+                masterPassword: masterPassword
+              });
+              
+              await chrome.storage.local.set({
+                cachedUser: { id: loginRes.user.id || loginRes.user._id, email: loginRes.user.email }
+              });
+
+              if (rememberVault) {
+                await localDb.saveRememberedSession({
+                  token: loginRes.token,
+                  user: loginRes.user,
+                  masterPassword
+                });
+                await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+              } else {
+                await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+              }
+              
+              await syncVault();
+              await resetAutoLockTimer();
+              return { success: true, user: loginRes.user };
+            }
+            throw new Error('Invalid credentials.');
+          }
+        }
+        case 'LOCK_VAULT': {
+          await lockVault({ forgetPersistent: !!message.forgetPersistent });
+          return { success: true };
+        }
+        case 'GET_STATUS': {
+          const session = await chrome.storage.session.get(['masterPassword', 'user']);
+          const settings = await chrome.storage.local.get(['cachedUser']);
+          return { 
+            isUnlocked: !!session.masterPassword, 
+            user: session.user || settings.cachedUser || null 
+          };
+        }
+        case 'SYNC_VAULT': {
+          return await syncVault();
+        }
+        case 'GET_REMEMBER_VAULT': {
+          const settings = await chrome.storage.local.get(['rememberVault']);
+          return { rememberVault: !!settings.rememberVault };
+        }
+        case 'SET_REMEMBER_VAULT': {
+          await chrome.storage.local.set({ rememberVault: !!message.rememberVault });
+          if (!message.rememberVault) {
+            await localDb.clearRememberedSession();
+            await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+          } else {
+            const session = await chrome.storage.session.get(['token', 'user', 'masterPassword']);
+            if (session.masterPassword) {
+              await localDb.saveRememberedSession({
+                token: session.token,
+                user: session.user,
+                masterPassword: session.masterPassword
+              });
+              await chrome.storage.local.set({ vaultExplicitlyLocked: false });
+              await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+            }
+          }
+          return { success: true };
+        }
+        case 'GET_ENTRIES': {
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+          
+          let rawEntries = session.encryptedEntries;
+          if (!rawEntries) {
+            rawEntries = await localDb.getAllEntries();
+            await chrome.storage.session.set({ encryptedEntries: rawEntries });
+          }
+          
+          let masterKey;
+          try {
+            masterKey = await getMasterKey(session.masterPassword);
+          } catch (err) {
+            console.error('Failed to derive master key for GET_ENTRIES:', err);
+            return { success: false, error: 'Failed to derive master key.' };
+          }
+
+          const decryptedList = [];
+          const legacyEntries = [];
+
+          for (const entry of rawEntries) {
+            try {
+              if (entry.encryptedData && entry.iv && entry.salt) {
+                let plaintext;
+                if (entry.salt === 'migrated' || entry.salt === 'none' || !entry.salt) {
+                  plaintext = await decryptWithKey(entry.encryptedData, entry.iv, masterKey);
+                } else {
+                  plaintext = await decryptLegacy(entry.encryptedData, entry.iv, entry.salt, session.masterPassword);
+                  legacyEntries.push({ ...entry, plaintext });
+                }
+                const sensitive = JSON.parse(plaintext);
+                decryptedList.push({
+                  ...entry,
+                  username: sensitive.username || '',
+                  password: sensitive.password || '',
+                  notes: sensitive.notes || ''
+                });
+              } else {
+                decryptedList.push({
+                  ...entry,
+                  username: '',
+                  password: '',
+                  notes: entry.notes || ''
+                });
+              }
+            } catch (err) {
+              console.error('Decryption failed for single entry:', entry.title, err);
+              decryptedList.push({
+                ...entry,
+                username: '[Error Decrypting]',
+                password: '[Error Decrypting]',
+                notes: '[Error Decrypting]',
+                decryptionError: true
+              });
+            }
+          }
+
+          // Trigger background migration for legacy entries if any exist
+          if (legacyEntries.length > 0) {
+            await (async () => {
+              console.log(`[Migration] Starting background migration for ${legacyEntries.length} entries...`);
+              let migratedCount = 0;
+              for (const entry of legacyEntries) {
+                try {
+                  const encrypted = await encryptWithKey(entry.plaintext, masterKey);
+                  const updatedEntryData = {
+                    title: entry.title,
+                    website: entry.website,
+                    category: entry.category || 'General',
+                    encryptedData: encrypted.encryptedData,
+                    iv: encrypted.iv,
+                    salt: 'migrated',
+                    notes: ''
+                  };
+                  await apiRequest(`/vault/${entry._id}`, 'PUT', updatedEntryData);
+                  migratedCount++;
+                } catch (err) {
+                  console.error(`[Migration] Failed to migrate entry ${entry.title}:`, err);
+                }
+              }
+              if (migratedCount > 0) {
+                console.log(`[Migration] Successfully migrated ${migratedCount} entries. Syncing vault...`);
+                await syncVault().catch(err => console.error('Sync failed after migration:', err));
+              }
+            })();
+          }
+
+          return { success: true, entries: decryptedList };
+        }
+        case 'AUTOFILL_ENTRY': {
+          const id = credentialId(message.id);
+          const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (!activeTab?.id || !activeTab.url) throw new Error('No active website tab was found.');
+
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          if (!session.masterPassword) return { success: false, error: 'Vault is locked.' };
+          const entries = await matchingEntriesForSite(activeTab.url, session);
+          const entry = entries.find(candidate => String(candidate._id) === id);
+          if (!entry) return { success: false, error: 'Credential does not match the active site.' };
+
+          const masterKey = await getMasterKey(session.masterPassword);
+          const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+          const response = await chrome.tabs.sendMessage(activeTab.id, {
+            action: 'AUTOFILL_CREDENTIALS',
+            username: sensitive.username || '',
+            password: sensitive.password || '',
+          }, { frameId: 0 });
+          if (!response?.success) return { success: false, error: 'No suitable login fields were found.' };
+          await resetAutoLockTimer();
+          return { success: true };
+        }
+        case 'GET_MATCHING_METADATA': {
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+          const pageSite = getSenderSite(sender);
+          const entries = await matchingEntriesForSite(pageSite.origin, session);
+          const masterKey = await getMasterKey(session.masterPassword);
+          const credentials = [];
+
+          for (const entry of entries) {
+            try {
+              const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+              credentials.push({
+                id: entry._id,
+                title: entry.title,
+                website: entry.website,
+                category: entry.category || 'General',
+                username: sensitive.username || '',
+              });
+            } catch (err) {
+              console.error('Failed to read matching credential metadata:', err);
+            }
+          }
+          return { success: true, credentials };
+        }
+        case 'GET_CREDENTIAL_FOR_FILL': {
+          const id = credentialId(message.id);
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          if (!session.masterPassword) return { success: false, error: 'Vault is locked.' };
+
+          const pageSite = getSenderSite(sender);
+          const entries = await matchingEntriesForSite(pageSite.origin, session);
+          const entry = entries.find(candidate => String(candidate._id) === id);
+          if (!entry) return { success: false, error: 'Credential is not valid for this site.' };
+
+          const masterKey = await getMasterKey(session.masterPassword);
+          const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+          await resetAutoLockTimer();
+          return {
+            success: true,
+            credential: {
+              id: entry._id,
+              username: sensitive.username || '',
+              password: sensitive.password || '',
+            },
+          };
+        }
+        case 'CHECK_CREDENTIAL_FOR_SAVE': {
+          const username = boundedString(message.username, 'Username', { max: 1000, trim: false });
+          const password = boundedString(message.password, 'Password', { required: true, trim: false });
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          if (!session.masterPassword) return { success: false, error: 'Vault is locked.' };
+
+          const pageSite = getSenderSite(sender);
+          const entries = await matchingEntriesForSite(pageSite.origin, session);
+          const masterKey = await getMasterKey(session.masterPassword);
+          let usernameMatch = null;
+
+          for (const entry of entries) {
+            try {
+              const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+              const sameUsername = (sensitive.username || '').toLowerCase() === username.toLowerCase();
+              if (sameUsername && sensitive.password === password) {
+                return { success: true, exactMatch: true, usernameMatch: null };
+              }
+              if (sameUsername && !usernameMatch) {
+                usernameMatch = {
+                  id: entry._id,
+                  title: entry.title,
+                  website: entry.website,
+                  category: entry.category || 'General',
+                  username: sensitive.username || '',
+                };
+              }
+            } catch (err) {
+              console.error('Failed to compare a matching credential:', err);
+            }
+          }
+          return { success: true, exactMatch: false, usernameMatch };
+        }
+        case 'SAVE_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['masterPassword']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+
+          if (!message.data || typeof message.data !== 'object') throw new Error('Credential data is required.');
+          const title = boundedString(message.data.title, 'Title', { required: true, max: 200 });
+          const username = boundedString(message.data.username, 'Username', { max: 1000, trim: false });
+          const password = boundedString(message.data.password, 'Password', { required: true, trim: false });
+          const category = boundedString(message.data.category || 'General', 'Category', { max: 100 });
+          const notes = boundedString(message.data.notes, 'Notes', { trim: false });
+          const website = isContentScriptSender(sender)
+            ? getSenderSite(sender).origin
+            : boundedString(message.data.website, 'Website', { required: true, max: 2048 });
+          if (!parseSiteIdentity(website)) throw new Error('A valid HTTP(S) website is required.');
+          const sensitivePayload = JSON.stringify({ username, password, notes: notes || '' });
+          
+          let masterKey;
+          try {
+            masterKey = await getMasterKey(session.masterPassword);
+          } catch (err) {
+            console.error('Failed to derive master key for SAVE_CREDENTIAL:', err);
+            return { success: false, error: 'Failed to derive master key.' };
+          }
+
+          // Encrypt client-side
+          const encrypted = await encryptWithKey(sensitivePayload, masterKey);
+          const newEntryData = {
+            title,
+            website,
+            category: category || 'General',
+            encryptedData: encrypted.encryptedData,
+            iv: encrypted.iv,
+            salt: 'migrated', // Sentinel value to satisfy required salt schema
+            notes: ''
+          };
+
+          const saveRes = await apiRequest('/vault', 'POST', newEntryData);
+          if (saveRes.success) {
+            // Reload and update cache
+            await syncVault();
+            return { success: true, entry: saveRes.data };
+          }
+          throw new Error(saveRes.message || 'Failed to save credential.');
+        }
+        case 'UPDATE_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+
+          if (!message.data || typeof message.data !== 'object') throw new Error('Credential data is required.');
+          const id = credentialId(message.data.id);
+          const title = boundedString(message.data.title, 'Title', { required: true, max: 200 });
+          const username = boundedString(message.data.username, 'Username', { max: 1000, trim: false });
+          const password = boundedString(message.data.password, 'Password', { required: true, trim: false });
+          const category = boundedString(message.data.category || 'General', 'Category', { max: 100 });
+          const notes = boundedString(message.data.notes, 'Notes', { trim: false });
+          let website = boundedString(message.data.website, 'Website', { required: true, max: 2048 });
+          if (isContentScriptSender(sender)) {
+            const senderSite = getSenderSite(sender);
+            const matchingEntries = await matchingEntriesForSite(senderSite.origin, session);
+            const existingEntry = matchingEntries.find(candidate => String(candidate._id) === id);
+            if (!existingEntry) throw new Error('Credential is not valid for this site.');
+            website = existingEntry.website;
+          }
+          if (!parseSiteIdentity(website)) throw new Error('A valid HTTP(S) website is required.');
+          const sensitivePayload = JSON.stringify({ username, password, notes: notes || '' });
+          
+          let masterKey;
+          try {
+            masterKey = await getMasterKey(session.masterPassword);
+          } catch (err) {
+            console.error('Failed to derive master key for UPDATE_CREDENTIAL:', err);
+            return { success: false, error: 'Failed to derive master key.' };
+          }
+
+          const encrypted = await encryptWithKey(sensitivePayload, masterKey);
+          const updatedEntryData = {
+            title,
+            website,
+            category: category || 'General',
+            encryptedData: encrypted.encryptedData,
+            iv: encrypted.iv,
+            salt: 'migrated', // Sentinel value
+            notes: ''
+          };
+
+          const updateRes = await apiRequest(`/vault/${id}`, 'PUT', updatedEntryData);
+          if (updateRes.success) {
+            await syncVault();
+            return { success: true, entry: updateRes.data };
+          }
+          throw new Error(updateRes.message || 'Failed to update credential.');
+        }
+        case 'DELETE_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['masterPassword']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+          const id = credentialId(message.id);
+          const deleteRes = await apiRequest(`/vault/${id}`, 'DELETE');
+          if (deleteRes.success) {
+            await syncVault();
+            return { success: true };
+          }
+          throw new Error(deleteRes.message || 'Failed to delete credential.');
+        }
+        case 'TOGGLE_FAVORITE': {
+          const session = await chrome.storage.session.get(['masterPassword']);
+          if (!session.masterPassword) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+          const id = credentialId(message.id);
+          const favRes = await apiRequest(`/vault/${id}/favorite`, 'PATCH');
+          if (favRes.success) {
+            await syncVault();
+            return { success: true, entry: favRes.data };
+          }
+          throw new Error(favRes.message || 'Failed to toggle favorite.');
+        }
+        case 'SET_PENDING_CREDENTIAL': {
+          if (!message.data || typeof message.data !== 'object') throw new Error('Pending credential data is required.');
+          const senderSite = getSenderSite(sender);
+          const username = boundedString(message.data.username, 'Username', { max: 1000, trim: false });
+          const password = boundedString(message.data.password, 'Password', { required: true, trim: false });
+          const title = boundedString(message.data.title, 'Title', { max: 200 });
+          await chrome.storage.session.set({
+            pendingCredential: {
+              username,
+              password,
+              website: senderSite.origin,
+              title,
+              tabId: sender.tab.id,
+              frameId: sender.frameId ?? 0,
+              timestamp: Date.now()
+            }
+          });
+          return { success: true };
+        }
+        case 'GET_PENDING_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['pendingCredential']);
+          const pending = session.pendingCredential;
+          if (!pending) return { success: true, pendingCredential: null };
+
+          const senderSite = getSenderSite(sender);
+          const isExpired = Date.now() - pending.timestamp >= 60000;
+          const isSameContext = pending.tabId === sender.tab.id &&
+            pending.frameId === (sender.frameId ?? 0) &&
+            pending.website === senderSite.origin;
+          if (isExpired) await chrome.storage.session.remove(['pendingCredential']);
+          return { success: true, pendingCredential: !isExpired && isSameContext ? pending : null };
+        }
+        case 'CLEAR_PENDING_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['pendingCredential']);
+          const pending = session.pendingCredential;
+          if (pending) {
+            const senderSite = getSenderSite(sender);
+            if (pending.tabId === sender.tab.id &&
+                pending.frameId === (sender.frameId ?? 0) &&
+                pending.website === senderSite.origin) {
+              await chrome.storage.session.remove(['pendingCredential']);
+            }
+          }
+          return { success: true };
+        }
+        case 'USER_ACTIVITY': {
+          await resetAutoLockTimer();
+          return { success: true };
+        }
+        default:
+          return { error: 'Unknown action' };
+      }
+    } catch (err) {
+      console.error('Background worker handler failed:', err);
+      return { success: false, error: err.message || 'Action failed' };
+    }
+  };
+
+  handleMessage().then(sendResponse);
+  return true; // Keeps the message channel open for sendResponse
+});

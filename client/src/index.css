@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-dark: hsl(220, 20%, 6%);
+  --color-surface-dark: hsl(220, 18%, 10%);
+  --color-surface-hover: hsl(220, 18%, 14%);
+  --color-border-dark: hsl(220, 15%, 18%);
+  --color-accent-teal: hsl(175, 80%, 50%);
+  --color-accent-glow: hsla(175, 80%, 50%, 0.15);
+  --color-text-primary: hsl(220, 10%, 92%);
+  --color-text-secondary: hsl(220, 10%, 55%);
+}
+
+@layer base {
+  body {
+    background-color: hsl(220, 20%, 6%);
+    color: hsl(220, 10%, 92%);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Extension popup specific sizing */
+.is-extension, .is-extension body {
+  width: 380px !important;
+  height: 600px !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Scrollbar utilities */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(220, 15%, 25%);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: hsl(175, 80%, 50%);
+}
+
+
