@@ -678,19 +678,6 @@ export default function SettingsPage() {
               <option value="0" className="bg-surface-dark">Never Lock</option>
             </select>
 
-            <button
-              type="button"
-              onClick={openPasswordEditor}
-              className="mt-2 w-full rounded-lg border border-border-dark bg-bg-dark px-2.5 py-2 text-left transition-all hover:border-accent-teal/30 hover:bg-surface-hover"
-            >
-              <span className="flex items-center gap-2 text-xs font-semibold text-text-primary">
-                <KeyRound className="h-3.5 w-3.5 text-accent-teal" />
-                Change Master Password
-              </span>
-              <span className="mt-1 block pl-5 text-[10px] leading-4 text-text-secondary/70">
-                Re-encrypt the vault with a new password.
-              </span>
-            </button>
           </div>
         </div>
 
@@ -764,20 +751,6 @@ export default function SettingsPage() {
           <span>Log Out of Vault</span>
         </button>
 
-        {isPasswordModalOpen && (
-          <ChangePasswordModal
-            currentPassword={currentPassword}
-            newPassword={newPassword}
-            confirmPassword={confirmPassword}
-            error={passwordError}
-            isSaving={isChangingPassword}
-            onCurrentPasswordChange={setCurrentPassword}
-            onNewPasswordChange={setNewPassword}
-            onConfirmPasswordChange={setConfirmPassword}
-            onClose={closePasswordEditor}
-            onSubmit={handleChangePassword}
-          />
-        )}
       </div>
     );
   }

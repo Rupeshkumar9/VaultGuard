@@ -302,18 +302,7 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(true);
     try {
       if (isExtension) {
-        const response = await chrome.runtime.sendMessage({
-          action: 'CHANGE_PASSWORD',
-          currentPassword,
-          newPassword,
-        });
-        if (!response?.success) {
-          throw new Error(response?.error || 'Failed to change master password.');
-        }
-        cacheUser(response.user);
-        setUser(response.user);
-        setIsAuthenticated(true);
-        return response;
+        throw new Error('Changing the master password is available from the web dashboard or mobile app.');
       }
 
       const response = await api.patch('/auth/password', {
