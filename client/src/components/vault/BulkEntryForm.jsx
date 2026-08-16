@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { X, Save, Folder } from 'lucide-react';
+import { X, Save, Folder, RefreshCw } from 'lucide-react';
 import { useVault } from '../../contexts/VaultContext';
+import LoadingSpinner from '../common/LoadingSpinner';
+import ProcessingOverlay from '../common/ProcessingOverlay';
 
 const CATEGORIES = [
   'General',
@@ -63,10 +65,10 @@ export default function BulkEntryForm({ selectedIds, onClose, onClearSelection }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
-        onClick={onClose}
+        onClick={isLoading ? undefined : onClose}
         className="absolute inset-0 bg-bg-dark/80 backdrop-blur-sm transition-opacity" 
       />
 
@@ -88,11 +90,19 @@ export default function BulkEntryForm({ selectedIds, onClose, onClearSelection }
           <button 
             type="button"
             onClick={onClose}
+            disabled={isLoading}
             className="p-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {isLoading && (
+          <ProcessingOverlay
+            title="Updating credentials..."
+            description="Waiting for the server to secure your changes."
+          />
+        )}
 
         {/* Content */}
         <div className="p-6 space-y-5 overflow-y-auto flex-1 scrollbar-thin text-left">
@@ -177,6 +187,7 @@ export default function BulkEntryForm({ selectedIds, onClose, onClearSelection }
           <button
             type="button"
             onClick={onClose}
+            disabled={isLoading}
             className="px-4 py-2.5 rounded-lg text-xs font-semibold border border-border-dark text-text-primary bg-surface-hover hover:bg-border-dark transition-colors cursor-pointer"
           >
             Cancel
@@ -186,7 +197,7 @@ export default function BulkEntryForm({ selectedIds, onClose, onClearSelection }
             disabled={isLoading}
             className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-accent-teal to-cyan-500 hover:opacity-90 active:scale-[0.98] text-bg-dark font-bold text-xs transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            <Save className="w-3.5 h-3.5" />
+            {isLoading ? <LoadingSpinner size="xs" /> : <Save className="w-3.5 h-3.5" />}
             <span>{isLoading ? 'Saving...' : 'Apply Changes'}</span>
           </button>
         </div>

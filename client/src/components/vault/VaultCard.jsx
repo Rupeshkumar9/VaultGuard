@@ -1,17 +1,22 @@
-import React, { useState } from 'react';
-import { Star, Copy, Check, ExternalLink, Shield, Globe, RefreshCw, Info, MoreHorizontal } from 'lucide-react';
+/* global chrome */
+
+import { useState } from 'react';
+import { Star, Copy, Check, ExternalLink, Shield, RefreshCw, Info, MoreHorizontal } from 'lucide-react';
 import { getFaviconUrl, getDomain, formatRelativeTime } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 import { isExtension } from '../../utils/platform';
+import LoadingSpinner from '../common/LoadingSpinner';
 
-export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect, onClone }) {
-  const { toggleFavorite, updateLastUsed, restoreEntry } = useVault();
+export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect, onClone, onRequestRestore }) {
+  const { toggleFavorite, updateLastUsed } = useVault();
   const { copy: copyUsername, isCopied: isUsernameCopied } = useClipboard(10000);
   const { copy: copyPassword, isCopied: isPasswordCopied } = useClipboard(10000);
   const [imageError, setImageError] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showCopyFeedback, setShowCopyFeedback] = useState(false);
+  const [isFavoriteUpdating, setIsFavoriteUpdating] = useState(false);
+  const [favoriteError, setFavoriteError] = useState(false);
 
   const domain = entry.website ? getDomain(entry.website) : '';
   const favicon = domain ? getFaviconUrl(entry.website) : null;
@@ -55,18 +60,25 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect,
     }
   };
 
-  const handleFavoriteClick = (e) => {
+  const handleFavoriteClick = async (e) => {
     e.stopPropagation();
-    toggleFavorite(entry._id);
+    if (isFavoriteUpdating) return;
+
+    setFavoriteError(false);
+    setIsFavoriteUpdating(true);
+    try {
+      await toggleFavorite(entry._id);
+    } catch (err) {
+      console.error('Failed to update favorite:', err);
+      setFavoriteError(true);
+    } finally {
+      setIsFavoriteUpdating(false);
+    }
   };
 
   const handleRestore = async (e) => {
     e.stopPropagation();
-    try {
-      await restoreEntry(entry._id);
-    } catch (err) {
-      alert('Failed to restore entry');
-    }
+    onRequestRestore?.(entry._id);
   };
 
   const handleLinkClick = (e) => {
@@ -271,16 +283,23 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect,
               className="w-4 h-4 rounded border-border-dark text-accent-teal focus:ring-accent-teal bg-bg-dark cursor-pointer"
             />
             {!entry.isInTrash && (
-              <button
-                onClick={handleFavoriteClick}
-                className={`p-1.5 rounded-lg border transition-all ${
-                  entry.isFavorite
-                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                    : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-dark'
-                }`}
-              >
-                <Star className="w-4 h-4 fill-current" />
-              </button>
+              <div className="flex flex-col items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={handleFavoriteClick}
+                  disabled={isFavoriteUpdating}
+                  aria-busy={isFavoriteUpdating}
+                  aria-label={isFavoriteUpdating ? 'Saving favorite' : (entry.isFavorite ? 'Remove from favorites' : 'Add to favorites')}
+                  className={`p-1.5 rounded-lg border transition-all disabled:cursor-wait disabled:opacity-60 ${
+                    entry.isFavorite
+                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                      : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-dark'
+                  }`}
+                >
+                  {isFavoriteUpdating ? <LoadingSpinner size="sm" /> : <Star className="w-4 h-4 fill-current" />}
+                </button>
+                {favoriteError && !isFavoriteUpdating && <span className="text-[9px] font-bold text-rose-400" title="Favorite update failed">!</span>}
+              </div>
             )}
           </div>
         </div>

@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, X, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw, Lock, Settings, Search } from 'lucide-react';
+/* global chrome */
+
+import { useState, useEffect } from 'react';
+import { Shield, Plus, Trash2, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw, Lock, Settings, Search } from 'lucide-react';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
 import ServerStatus from '../components/layout/ServerStatus';
@@ -8,6 +10,7 @@ import VaultDetail from '../components/vault/VaultDetail';
 import EntryForm from '../components/vault/EntryForm';
 import BulkEntryForm from '../components/vault/BulkEntryForm';
 import PasswordGenerator from '../components/generator/PasswordGenerator';
+import ConfirmationModal from '../components/common/ConfirmationModal';
 import SettingsPage from './SettingsPage';
 import { useVault } from '../contexts/VaultContext';
 import { useAutoLock } from '../hooks/useAutoLock';
@@ -64,10 +67,9 @@ export default function VaultPage() {
   const [sortBy, setSortBy] = useState('updatedAt'); // 'updatedAt' | 'createdAt' | 'lastUsed' | 'title'
   const [dateFilter, setDateFilter] = useState('all'); // 'all' | '30days' | '90days' | 'older6months' | 'neverUsed'
 
-  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-  const [isBulkRestoring, setIsBulkRestoring] = useState(false);
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isBulkEditing, setIsBulkEditing] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
+  const [isConfirmingAction, setIsConfirmingAction] = useState(false);
 
   // Mobile navigation
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -103,13 +105,8 @@ export default function VaultPage() {
   // Reset selection when filters change to avoid accidental off-screen actions
   useEffect(() => {
     setSelectedIds([]);
-    setIsConfirmingDelete(false);
+    setConfirmation(null);
   }, [activeCategory, showFavoritesOnly, searchQuery, dateFilter, showTrashOnly]);
-
-  // Reset confirmation state when selected items change
-  useEffect(() => {
-    setIsConfirmingDelete(false);
-  }, [selectedIds]);
 
   // Filter entries based on search, category, favorite, date, and trash status
   // Calculate matching logins for current tab
@@ -234,26 +231,54 @@ export default function VaultPage() {
     setIsAddingEntry(false);
   };
 
-  const handleDeleteEntry = async (id) => {
-    try {
-      const entryToDelete = entries.find(e => e._id === id);
-      if (entryToDelete?.isInTrash) {
-        await deleteEntryPermanent(id);
-      } else {
-        await deleteEntry(id);
-      }
-      setSelectedEntry(null);
-    } catch (err) {
-      alert('Failed to delete entry');
-    }
+  const requestConfirmation = (action, ids) => {
+    if (!ids?.length) return;
+    setConfirmation({ action, ids: [...ids] });
   };
 
-  const handleRestoreEntry = async (id) => {
+  const handleDeleteEntry = (id) => {
+    const entryToDelete = entries.find((entry) => entry._id === id);
+    requestConfirmation(entryToDelete?.isInTrash ? 'permanentDelete' : 'delete', [id]);
+  };
+
+  const handleRestoreEntry = (id) => {
+    requestConfirmation('restore', [id]);
+  };
+
+  const handleCancelConfirmation = () => {
+    if (!isConfirmingAction) setConfirmation(null);
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmation || isConfirmingAction) return;
+
+    const { action, ids } = confirmation;
+    setIsConfirmingAction(true);
+
     try {
-      await restoreEntry(id);
-      setSelectedEntry(null);
-    } catch (err) {
-      alert('Failed to restore entry');
+      if (action === 'delete') {
+        if (ids.length === 1) await deleteEntry(ids[0]);
+        else await deleteEntries(ids);
+      } else if (action === 'permanentDelete') {
+        if (ids.length === 1) await deleteEntryPermanent(ids[0]);
+        else await deleteEntriesPermanent(ids);
+      } else {
+        if (ids.length === 1) await restoreEntry(ids[0]);
+        else await restoreEntries(ids);
+      }
+
+      setSelectedIds((currentIds) => currentIds.filter((id) => !ids.includes(id)));
+      if (ids.length === 1) setSelectedEntry(null);
+      setConfirmation(null);
+    } catch {
+      const failureMessage = action === 'restore'
+        ? 'Failed to restore the selected credential(s).'
+        : action === 'permanentDelete'
+          ? 'Failed to permanently delete the selected credential(s).'
+          : 'Failed to move the selected credential(s) to the trash.';
+      alert(failureMessage);
+    } finally {
+      setIsConfirmingAction(false);
     }
   };
 
@@ -300,52 +325,16 @@ export default function VaultPage() {
     }
   };
 
-  const handleDeleteSelected = async () => {
-    if (!isConfirmingDelete) {
-      setIsConfirmingDelete(true);
-      return;
-    }
-
-    setIsBulkDeleting(true);
-    try {
-      await deleteEntries(selectedIds);
-      setSelectedIds([]);
-      setIsConfirmingDelete(false);
-    } catch (err) {
-      alert('Failed to delete selected entries');
-    } finally {
-      setIsBulkDeleting(false);
-    }
+  const handleDeleteSelected = () => {
+    requestConfirmation('delete', selectedIds);
   };
 
-  const handleRestoreSelected = async () => {
-    setIsBulkRestoring(true);
-    try {
-      await restoreEntries(selectedIds);
-      setSelectedIds([]);
-    } catch (err) {
-      alert('Failed to restore selected entries');
-    } finally {
-      setIsBulkRestoring(false);
-    }
+  const handleRestoreSelected = () => {
+    requestConfirmation('restore', selectedIds);
   };
 
-  const handleDeleteSelectedPermanent = async () => {
-    if (!isConfirmingDelete) {
-      setIsConfirmingDelete(true);
-      return;
-    }
-
-    setIsBulkDeleting(true);
-    try {
-      await deleteEntriesPermanent(selectedIds);
-      setSelectedIds([]);
-      setIsConfirmingDelete(false);
-    } catch (err) {
-      alert('Failed to permanently delete selected entries');
-    } finally {
-      setIsBulkDeleting(false);
-    }
+  const handleDeleteSelectedPermanent = () => {
+    requestConfirmation('permanentDelete', selectedIds);
   };
 
   const handleSidebarViewChange = (view) => {
@@ -503,6 +492,7 @@ export default function VaultPage() {
                   selectedIds={[]} // disable multi-select in extension popup
                   onToggleSelectEntry={() => {}}
                   onClone={handleCloneEntry}
+                  onRequestRestore={handleRestoreEntry}
                 />
               </div>
             </div>
@@ -564,6 +554,16 @@ export default function VaultPage() {
           <EntryForm 
             entry={editingEntry}
             onClose={handleCloseEditForm}
+          />
+        )}
+
+        {confirmation && (
+          <ConfirmationModal
+            action={confirmation.action}
+            itemCount={confirmation.ids.length}
+            isProcessing={isConfirmingAction}
+            onCancel={handleCancelConfirmation}
+            onConfirm={handleConfirmAction}
           />
         )}
       </div>
@@ -630,6 +630,7 @@ export default function VaultPage() {
           }}
           onOpenAddEntry={handleOpenAddForm}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(true)}
+          onOpenSettings={() => handleSidebarViewChange('settings')}
         />
 
         {/* Content body */}
@@ -759,6 +760,7 @@ export default function VaultPage() {
                 selectedIds={selectedIds}
                 onToggleSelectEntry={handleToggleSelectEntry}
                 onClone={handleCloneEntry}
+                onRequestRestore={handleRestoreEntry}
               />
             </div>
           )}
@@ -770,26 +772,26 @@ export default function VaultPage() {
 
       {/* Floating Bulk Action Bar */}
       <div 
-        className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between gap-4 md:gap-6 px-6 py-4 rounded-2xl border border-border-dark/80 bg-surface-dark/95 backdrop-blur-md shadow-2xl w-[95%] max-w-lg transition-all duration-300 ${
+        className={`fixed bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-6 px-3 sm:px-6 py-3 sm:py-4 rounded-2xl border border-border-dark/80 bg-surface-dark/95 backdrop-blur-md shadow-2xl w-[calc(100%-1rem)] sm:w-[95%] max-w-lg transition-all duration-300 ${
           selectedIds.length > 0 
             ? 'translate-y-0 opacity-100 scale-100 pointer-events-auto border-accent-teal/20' 
             : 'translate-y-10 opacity-0 scale-95 pointer-events-none'
         }`}
       >
-        <div className="flex items-center gap-3 text-left">
+        <div className="flex items-center gap-3 text-left min-w-0">
           <div className="w-8 h-8 rounded-lg bg-accent-glow flex items-center justify-center shrink-0 border border-accent-teal/10">
             <span className="text-xs font-bold text-accent-teal">{selectedIds.length}</span>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-bold text-text-primary">Items Selected</p>
-            <p className="text-[10px] text-text-secondary">Bulk action will apply to all selected items.</p>
+            <p className="hidden sm:block text-[10px] text-text-secondary truncate">Bulk action will apply to all selected items.</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:justify-end sm:w-auto shrink-0">
           <button
             onClick={() => setSelectedIds([])}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+            className="min-w-0 px-3 py-1.5 rounded-lg text-xs font-semibold text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -797,29 +799,20 @@ export default function VaultPage() {
             <>
               <button
                 onClick={handleRestoreSelected}
-                disabled={isBulkRestoring}
-                className="px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-border-dark bg-surface-dark hover:bg-surface-hover hover:border-accent-teal/30 text-text-primary"
+                disabled={isConfirmingAction}
+                className="min-w-0 justify-center px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-border-dark bg-surface-dark hover:bg-surface-hover hover:border-accent-teal/30 text-text-primary"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-accent-teal" />
                 <span>Restore</span>
               </button>
               <button
                 onClick={handleDeleteSelectedPermanent}
-                disabled={isBulkDeleting}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                  isConfirmingDelete 
-                    ? 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700 font-semibold' 
-                    : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:border-rose-500/35'
-                }`}
+                disabled={isConfirmingAction}
+                className="col-span-2 sm:col-span-1 min-w-0 justify-center px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:border-rose-500/35 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>
-                  {isBulkDeleting 
-                    ? 'Deleting...' 
-                    : isConfirmingDelete 
-                      ? 'Confirm Permanent Delete?' 
-                      : 'Delete Permanently'
-                  }
+                  Delete Permanently
                 </span>
               </button>
             </>
@@ -827,28 +820,19 @@ export default function VaultPage() {
             <>
               <button
                 onClick={() => setIsBulkEditing(true)}
-                className="px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-border-dark bg-surface-dark hover:bg-surface-hover hover:border-accent-teal/30 text-text-primary"
+                className="min-w-0 justify-center px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-border-dark bg-surface-dark hover:bg-surface-hover hover:border-accent-teal/30 text-text-primary"
               >
                 <Edit3 className="w-3.5 h-3.5 text-accent-teal" />
                 <span>Edit</span>
               </button>
               <button
                 onClick={handleDeleteSelected}
-                disabled={isBulkDeleting}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                  isConfirmingDelete 
-                    ? 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700 font-semibold' 
-                    : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:border-rose-500/35'
-                }`}
+                disabled={isConfirmingAction}
+                className="col-span-2 sm:col-span-1 min-w-0 justify-center px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:border-rose-500/35 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>
-                  {isBulkDeleting 
-                    ? 'Deleting...' 
-                    : isConfirmingDelete 
-                      ? 'Confirm Delete?' 
-                      : 'Delete Selected'
-                  }
+                  Delete Selected
                 </span>
               </button>
             </>
@@ -885,6 +869,16 @@ export default function VaultPage() {
           selectedIds={selectedIds}
           onClose={() => setIsBulkEditing(false)}
           onClearSelection={() => setSelectedIds([])}
+        />
+      )}
+
+      {confirmation && (
+        <ConfirmationModal
+          action={confirmation.action}
+          itemCount={confirmation.ids.length}
+          isProcessing={isConfirmingAction}
+          onCancel={handleCancelConfirmation}
+          onConfirm={handleConfirmAction}
         />
       )}
     </div>

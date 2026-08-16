@@ -1,5 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const VaultEntry = require('../models/VaultEntry');
 const { protect } = require('../middleware/auth');
@@ -26,6 +27,7 @@ const sendTokenResponse = (user, statusCode, res) => {
     token,
     user: {
       id: user._id,
+      name: user.name || '',
       email: user.email,
       masterPasswordHint: user.masterPasswordHint,
     },
@@ -38,12 +40,12 @@ const sendTokenResponse = (user, statusCode, res) => {
 // ──────────────────────────────────────────────
 router.post('/register', async (req, res, next) => {
   try {
-    const { email, password, masterPasswordHint, registrationKey } = req.body;
+    const { name, email, password, masterPasswordHint, registrationKey } = req.body;
 
-    if (!email || !password) {
+    if (!name || !String(name).trim() || !email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Email and password are required.',
+        message: 'Name, email, and password are required.',
       });
     }
 
@@ -57,6 +59,7 @@ router.post('/register', async (req, res, next) => {
     }
 
     const user = await User.create({
+      name: String(name).trim(),
       email,
       password,
       masterPasswordHint: masterPasswordHint || '',
@@ -137,10 +140,157 @@ router.get('/me', protect, async (req, res) => {
     success: true,
     user: {
       id: req.user._id,
+      name: req.user.name || '',
       email: req.user.email,
       masterPasswordHint: req.user.masterPasswordHint,
     },
   });
+});
+
+// ──────────────────────────────────────────────
+// PATCH /api/auth/profile
+// Update profile details. An email change also replaces the user's encrypted
+// vault payloads in the same MongoDB transaction.
+// ──────────────────────────────────────────────
+router.patch('/profile', protect, async (req, res, next) => {
+  let session;
+
+  try {
+    const {
+      name,
+      email,
+      currentPassword,
+      vaultEntries,
+    } = req.body;
+
+    const nextName = name === undefined ? (req.user.name || '') : String(name).trim();
+    const nextEmail = email === undefined ? req.user.email : String(email).trim().toLowerCase();
+
+    if (nextName.length > 100) {
+      const error = new Error('Name cannot exceed 100 characters.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!/^\S+@\S+\.\S+$/.test(nextEmail)) {
+      const error = new Error('Please enter a valid email address.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const emailChanged = nextEmail !== req.user.email;
+    if (emailChanged && (!currentPassword || typeof currentPassword !== 'string')) {
+      const error = new Error('Current password is required to change your email.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (emailChanged && (!Array.isArray(vaultEntries) || vaultEntries.length > 1000)) {
+      const error = new Error('A complete encrypted vault payload is required to change your email.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (emailChanged && vaultEntries.some((entry) => (
+      !entry ||
+      typeof entry.encryptedData !== 'string' ||
+      typeof entry.iv !== 'string' ||
+      typeof entry.salt !== 'string'
+    ))) {
+      const error = new Error('The encrypted vault payload is invalid.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Name-only edits do not need a MongoDB transaction or vault payload.
+    if (!emailChanged) {
+      const updatedUser = await User.findByIdAndUpdate(
+        req.user._id,
+        { name: nextName },
+        { new: true, runValidators: true }
+      );
+      return sendTokenResponse(updatedUser, 200, res);
+    }
+
+    session = await mongoose.startSession();
+    let updatedUser;
+
+    await session.withTransaction(async () => {
+      const user = await User.findById(req.user._id).select('+password').session(session);
+      if (!user) {
+        const error = new Error('User account not found.');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (emailChanged && !(await user.comparePassword(currentPassword))) {
+        const error = new Error('Current password is incorrect.');
+        error.statusCode = 401;
+        throw error;
+      }
+
+      if (emailChanged) {
+        const existingUser = await User.findOne({
+          email: nextEmail,
+          _id: { $ne: user._id },
+        }).session(session);
+
+        if (existingUser) {
+          const error = new Error('An account with this email already exists.');
+          error.statusCode = 409;
+          throw error;
+        }
+
+        const ids = vaultEntries.map((entry) => String(entry.id || entry._id));
+        const uniqueIds = new Set(ids);
+        if (ids.some((id) => !mongoose.isValidObjectId(id)) || uniqueIds.size !== ids.length) {
+          const error = new Error('The encrypted vault payload contains invalid entry IDs.');
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const existingEntries = await VaultEntry.find({
+          _id: { $in: ids },
+          user: user._id,
+        }).select('_id').session(session);
+
+        if (existingEntries.length !== ids.length) {
+          const error = new Error('The encrypted vault payload is incomplete or invalid.');
+          error.statusCode = 400;
+          throw error;
+        }
+
+        if (vaultEntries.length > 0) {
+          await VaultEntry.bulkWrite(
+            vaultEntries.map((entry) => ({
+              updateOne: {
+                filter: { _id: entry.id || entry._id, user: user._id },
+                update: {
+                  $set: {
+                    encryptedData: entry.encryptedData,
+                    iv: entry.iv,
+                    salt: entry.salt,
+                  },
+                },
+              },
+            })),
+            { session }
+          );
+        }
+      }
+
+      user.name = nextName;
+      user.email = nextEmail;
+      await user.save({ session });
+      updatedUser = user;
+    });
+
+    sendTokenResponse(updatedUser, 200, res);
+  } catch (error) {
+    next(error);
+  } finally {
+    if (session) await session.endSession();
+  }
 });
 
 // ──────────────────────────────────────────────

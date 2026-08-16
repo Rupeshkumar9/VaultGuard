@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Save, Shield, Key, Eye, EyeOff, RefreshCw, Check } from 'lucide-react';
 import { useVault } from '../../contexts/VaultContext';
 import { isExtension } from '../../utils/platform';
+import LoadingSpinner from '../common/LoadingSpinner';
+import ProcessingOverlay from '../common/ProcessingOverlay';
 
 const CATEGORIES = [
   'General',
@@ -112,10 +114,10 @@ export default function EntryForm({ entry, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
-        onClick={onClose}
+        onClick={isLoading ? undefined : onClose}
         className="absolute inset-0 bg-bg-dark/80 backdrop-blur-sm transition-opacity" 
       />
 
@@ -135,11 +137,19 @@ export default function EntryForm({ entry, onClose }) {
           <button 
             type="button"
             onClick={onClose}
+            disabled={isLoading}
             className="p-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {isLoading && (
+          <ProcessingOverlay
+            title={isEditMode ? 'Updating credential...' : 'Saving credential...'}
+            description="Waiting for the server to secure your changes."
+          />
+        )}
 
         {/* Form Content */}
         <form onSubmit={handleSubmit} className={`flex-1 overflow-y-auto ${isExtension ? 'p-4 space-y-3.5 scrollbar-none' : 'p-6 space-y-4 scrollbar-thin'} text-left`}>
@@ -194,8 +204,8 @@ export default function EntryForm({ entry, onClose }) {
                   </option>
                 ))}
               </select>
-            </div>
           </div>
+        </div>
 
           {/* Username */}
           <div className="space-y-1">
@@ -340,6 +350,7 @@ export default function EntryForm({ entry, onClose }) {
             <button
               type="button"
               onClick={onClose}
+              disabled={isLoading}
               className="px-4 py-2.5 rounded-lg bg-surface-hover hover:bg-border-dark text-text-primary text-xs font-semibold transition-all cursor-pointer border border-border-dark"
             >
               Cancel
@@ -349,8 +360,8 @@ export default function EntryForm({ entry, onClose }) {
               disabled={isLoading}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-accent-teal to-cyan-500 hover:opacity-90 active:scale-[0.98] text-bg-dark font-bold text-xs transition-all shadow-md shadow-accent-teal/10 cursor-pointer disabled:opacity-50"
             >
-              <Save className="w-3.5 h-3.5" />
-              <span>{isEditMode ? 'Update Credential' : 'Save Credential'}</span>
+              {isLoading ? <LoadingSpinner size="xs" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{isLoading ? (isEditMode ? 'Updating...' : 'Saving...') : (isEditMode ? 'Update Credential' : 'Save Credential')}</span>
             </button>
           </div>
         </form>

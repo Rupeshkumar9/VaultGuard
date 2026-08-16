@@ -9,6 +9,7 @@ export default function RegisterPage() {
   const { register, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { unlock } = useCrypto();
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [masterPasswordHint, setMasterPasswordHint] = useState('');
@@ -43,7 +44,7 @@ export default function RegisterPage() {
 
     try {
       // 2. Register the master account on the backend
-      const res = await register(email, password, masterPasswordHint, registrationKey);
+      const res = await register(email, password, masterPasswordHint, registrationKey, name);
       
       if (res && res.success) {
         // 3. Unlock the client-side cryptosystem using the same password
@@ -91,9 +92,24 @@ export default function RegisterPage() {
             <strong>⚠️ Critical:</strong> Derives local keys. If lost, your vault data is unrecoverable.
           </div>
 
-          {/* Form */}
+           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-2.5">
-            <div className="space-y-0.5">
+             <div className="space-y-0.5">
+               <label className="block text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
+                 Name
+               </label>
+               <input
+                 type="text"
+                 required
+                 value={name}
+                 onChange={(e) => setName(e.target.value)}
+                 maxLength={100}
+                 className="w-full px-3 py-1.5 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all text-xs"
+                 placeholder="Your name"
+               />
+             </div>
+
+             <div className="space-y-0.5">
               <label className="block text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
                 Email Address
               </label>
@@ -232,7 +248,22 @@ export default function RegisterPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
+           <div className="space-y-1">
+             <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider">
+               Name
+             </label>
+             <input
+               type="text"
+               required
+               value={name}
+               onChange={(e) => setName(e.target.value)}
+               maxLength={100}
+               className="w-full px-4 py-3 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/30 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all text-sm"
+               placeholder="Your name"
+             />
+           </div>
+
+           <div className="space-y-1">
             <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider">
               Email Address
             </label>

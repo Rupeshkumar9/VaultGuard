@@ -121,6 +121,7 @@ async function restoreSessionOnStartup() {
         await chrome.storage.local.set({
           cachedUser: {
             id: rememberedSession.user.id || rememberedSession.user._id,
+            name: rememberedSession.user.name || '',
             email: rememberedSession.user.email
           }
         });
@@ -243,7 +244,7 @@ async function syncVault() {
   }
 
   try {
-    const response = await apiRequest('/vault');
+    const response = await apiRequest('/vault?trash=all');
     if (response.success && response.data) {
       // Store encrypted entries in both session and local IndexedDB database
       await chrome.storage.session.set({ encryptedEntries: response.data });
@@ -261,6 +262,13 @@ async function syncVault() {
 }
 
 // Helper to derive master key from stored master password and user email
+async function getMasterKeyForEmail(masterPassword, email) {
+  if (!email) {
+    throw new Error('User email not found in session or cache.');
+  }
+  return await deriveMasterKey(masterPassword, email);
+}
+
 async function getMasterKey(masterPassword) {
   const session = await chrome.storage.session.get(['user']);
   let email = session.user?.email;
@@ -271,7 +279,7 @@ async function getMasterKey(masterPassword) {
   if (!email) {
     throw new Error('User email not found in session or cache.');
   }
-  return await deriveMasterKey(masterPassword, email);
+  return getMasterKeyForEmail(masterPassword, email);
 }
 
 // Check if the vault should be locked based on inactivity elapsed time
@@ -422,15 +430,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             // Keep online refresh inside the message lifetime so Chrome cannot
             // terminate the worker while a required sync is still running.
+            let refreshedUser = null;
             try {
               const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
               if (loginRes.success) {
+                refreshedUser = loginRes.user;
                 await chrome.storage.session.set({
                   token: loginRes.token,
                   user: loginRes.user
                 });
                 await chrome.storage.local.set({
-                  cachedUser: { id: loginRes.user.id || loginRes.user._id, email: loginRes.user.email }
+                  cachedUser: { id: loginRes.user.id || loginRes.user._id, name: loginRes.user.name || '', email: loginRes.user.email }
                 });
                 if (rememberVault) {
                   await localDb.saveRememberedSession({
@@ -450,7 +460,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
             }
 
-            return { success: true, user: userToUse };
+            // The local decryption path starts with cached profile data, but the
+            // online login above is authoritative. Return that refreshed user so
+            // the extension UI does not immediately replace the new server name
+            // with the stale cached profile.
+            return { success: true, user: refreshedUser || userToUse };
           } else {
             // Standard server-based authentication flow (for first login, different user, or changed password)
             const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
@@ -462,7 +476,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               });
               
               await chrome.storage.local.set({
-                cachedUser: { id: loginRes.user.id || loginRes.user._id, email: loginRes.user.email }
+                cachedUser: { id: loginRes.user.id || loginRes.user._id, name: loginRes.user.name || '', email: loginRes.user.email }
               });
 
               if (rememberVault) {
@@ -494,6 +508,82 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             isUnlocked: !!session.masterPassword, 
             user: session.user || settings.cachedUser || null 
           };
+        }
+        case 'UPDATE_PROFILE': {
+          const session = await chrome.storage.session.get(['masterPassword', 'user']);
+          if (!session.masterPassword || !session.user?.email) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+
+          const name = boundedString(message.name, 'Name', { max: 100 });
+          const email = boundedString(message.email, 'Email', { required: true, max: 320 }).toLowerCase();
+          const emailChanged = email !== session.user.email.toLowerCase();
+          const currentPassword = message.currentPassword || '';
+
+          if (emailChanged && currentPassword !== session.masterPassword) {
+            return { success: false, error: 'Current password is incorrect.' };
+          }
+
+          let vaultEntries;
+          if (emailChanged) {
+            const vaultResponse = await apiRequest('/vault?trash=all');
+            if (!vaultResponse.success || !Array.isArray(vaultResponse.data)) {
+              throw new Error(vaultResponse.message || 'Failed to load the encrypted vault.');
+            }
+
+            const oldKey = await getMasterKey(session.masterPassword);
+            const newKey = await getMasterKeyForEmail(session.masterPassword, email);
+            vaultEntries = await Promise.all(vaultResponse.data.map(async (entry) => {
+              if (!entry.encryptedData || !entry.iv) {
+                throw new Error(`Credential \"${entry.title}\" cannot be re-encrypted.`);
+              }
+
+              const plaintext = await decryptSensitiveEntry(entry, oldKey, session.masterPassword);
+              const encrypted = await encryptWithKey(JSON.stringify(plaintext), newKey);
+              return {
+                id: entry._id,
+                encryptedData: encrypted.encryptedData,
+                iv: encrypted.iv,
+                salt: 'migrated',
+              };
+            }));
+          }
+
+          const profileResponse = await apiRequest('/auth/profile', 'PATCH', {
+            name,
+            email,
+            currentPassword: emailChanged ? currentPassword : undefined,
+            vaultEntries,
+          });
+
+          if (!profileResponse.success || !profileResponse.user) {
+            throw new Error(profileResponse.message || 'Failed to update profile.');
+          }
+
+          await chrome.storage.session.set({
+            token: profileResponse.token,
+            user: profileResponse.user,
+          });
+          await chrome.storage.local.set({
+            cachedUser: {
+              id: profileResponse.user.id || profileResponse.user._id,
+              name: profileResponse.user.name || '',
+              email: profileResponse.user.email,
+            },
+          });
+
+          const settings = await chrome.storage.local.get(['rememberVault']);
+          if (settings.rememberVault) {
+            await localDb.saveRememberedSession({
+              token: profileResponse.token,
+              user: profileResponse.user,
+              masterPassword: session.masterPassword,
+            });
+          }
+
+          if (emailChanged) await syncVault();
+          await resetAutoLockTimer();
+          return { success: true, user: profileResponse.user, token: profileResponse.token };
         }
         case 'SYNC_VAULT': {
           return await syncVault();

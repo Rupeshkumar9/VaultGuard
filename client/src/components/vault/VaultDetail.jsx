@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
   X, 
   Copy, 
@@ -17,6 +17,7 @@ import { getFaviconUrl, getDomain, formatDate } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 import { isExtension } from '../../utils/platform';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestore }) {
   const { toggleFavorite, updateLastUsed } = useVault();
@@ -24,8 +25,10 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
   const { copy: copyPassword, isCopied: isPasswordCopied } = useClipboard(10000);
   
   const [showPassword, setShowPassword] = useState(false);
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(!!entry.isFavorite);
+  const [isFavoriteUpdating, setIsFavoriteUpdating] = useState(false);
+  const [favoriteError, setFavoriteError] = useState(false);
 
   const domain = entry.website ? getDomain(entry.website) : '';
   const favicon = domain ? getFaviconUrl(entry.website) : null;
@@ -39,16 +42,25 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
     updateLastUsed(entry._id);
   };
 
-  const handleDeleteClick = () => {
-    if (isConfirmingDelete) {
-      onDelete(entry._id);
-    } else {
-      setIsConfirmingDelete(true);
+  const handleFavoriteClick = async () => {
+    if (isFavoriteUpdating) return;
+
+    const nextFavorite = !isFavorite;
+    setFavoriteError(false);
+    setIsFavoriteUpdating(true);
+    try {
+      await toggleFavorite(entry._id);
+      setIsFavorite(nextFavorite);
+    } catch (err) {
+      console.error('Failed to update favorite:', err);
+      setFavoriteError(true);
+    } finally {
+      setIsFavoriteUpdating(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
         onClick={onClose}
@@ -56,11 +68,11 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
       />
 
       {/* Modal Container */}
-      <div className={`relative w-full max-w-lg bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden transition-all transform scale-100 flex flex-col ${isExtension ? 'max-h-[95vh]' : 'max-h-[90vh]'}`}>
+      <div className={`relative w-[calc(100vw-1rem)] max-w-lg min-w-0 bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden transition-all transform scale-100 flex flex-col ${isExtension ? 'max-h-[95vh]' : 'max-h-[90vh]'}`}>
         
         {/* Modal Header */}
-        <div className={`${isExtension ? 'px-4 py-2.5' : 'px-6 py-4'} border-b border-border-dark/60 flex items-center justify-between shrink-0`}>
-          <div className="flex items-center gap-3">
+        <div className={`${isExtension ? 'px-4 py-2.5' : 'px-4 sm:px-6 py-4'} border-b border-border-dark/60 flex items-center justify-between gap-3 min-w-0 shrink-0`}>
+          <div className="flex items-center gap-3 min-w-0">
             {favicon && !imageError ? (
               <img 
                 src={favicon} 
@@ -73,23 +85,30 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
                 <Shield className="w-4.5 h-4.5 text-accent-teal" />
               </div>
             )}
-            <h3 className="font-bold text-text-primary text-base truncate max-w-[280px]">
+            <h3 className="font-bold text-text-primary text-base truncate max-w-[calc(100vw-8rem)]">
               {entry.title}
             </h3>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {!entry.isInTrash && (
-              <button
-                onClick={() => toggleFavorite(entry._id)}
-                className={`p-1.5 rounded-lg border transition-all ${
-                  entry.isFavorite
-                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                    : 'border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-                }`}
-              >
-                <Star className="w-4 h-4 fill-current" />
-              </button>
+              <div className="flex flex-col items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={handleFavoriteClick}
+                  disabled={isFavoriteUpdating}
+                  aria-busy={isFavoriteUpdating}
+                  aria-label={isFavoriteUpdating ? 'Saving favorite' : (isFavorite ? 'Remove from favorites' : 'Add to favorites')}
+                  className={`p-1.5 rounded-lg border transition-all disabled:cursor-wait disabled:opacity-60 ${
+                    isFavorite
+                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                      : 'border-border-dark text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                  }`}
+                >
+                  {isFavoriteUpdating ? <LoadingSpinner size="sm" /> : <Star className="w-4 h-4 fill-current" />}
+                </button>
+                {favoriteError && !isFavoriteUpdating && <span className="text-[9px] font-bold text-rose-400" title="Favorite update failed">!</span>}
+              </div>
             )}
             <button 
               onClick={onClose}
@@ -218,22 +237,13 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
 
         {/* Modal Footer (Edit/Delete Actions) */}
         <div className={`${isExtension ? 'px-4 py-2.5' : 'px-6 py-4'} border-t border-border-dark/60 bg-bg-dark/20 flex items-center justify-between gap-3 shrink-0`}>
-          {/* Delete Button with inline confirmation */}
+          {/* Delete Button opens a confirmation dialog in the page layer */}
           <button
-            onClick={handleDeleteClick}
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold border transition-all active:scale-[0.98] cursor-pointer ${
-              isConfirmingDelete
-                ? 'bg-red-500 border-red-600 text-white hover:bg-red-600 shadow-md shadow-red-500/10'
-                : 'bg-red-500/5 hover:bg-red-500/10 border-red-500/10 hover:border-red-500/20 text-red-400'
-            }`}
+            onClick={() => onDelete(entry._id)}
+            className="inline-flex items-center gap-2 rounded-lg border border-red-500/10 bg-red-500/5 px-4 py-2 text-xs font-semibold text-red-400 transition-all hover:border-red-500/20 hover:bg-red-500/10 active:scale-[0.98] cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>
-              {isConfirmingDelete
-                ? (entry.isInTrash ? 'Confirm Permanent Delete?' : 'Are you sure?')
-                : (entry.isInTrash ? 'Delete Permanently' : 'Delete')
-              }
-            </span>
+            <span>{entry.isInTrash ? 'Delete Permanently' : 'Delete'}</span>
           </button>
 
           {/* Edit or Restore Button */}

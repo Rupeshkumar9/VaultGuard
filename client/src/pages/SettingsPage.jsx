@@ -11,25 +11,110 @@ import {
   AlertTriangle,
   Upload,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Pencil,
+  LogOut
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useVault } from '../contexts/VaultContext';
 import { useCrypto } from '../contexts/CryptoContext';
+import ProfileEditModal from '../components/common/ProfileEditModal';
 import { isExtension, isNative } from '../utils/platform';
 import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function SettingsPage() {
-  const { user, logout, deleteAccount } = useAuth();
+  const { user, logout, deleteAccount, updateProfile } = useAuth();
   const { entries, addEntry, fetchEntries, deleteEntry } = useVault();
-  const { isUnlocked, decryptData, getMasterPassword } = useCrypto();
+  const { isUnlocked, decryptData, getMasterPassword, prepareEmailRekey, commitEmailRekey } = useCrypto();
   const [isExportingDecrypted, setIsExportingDecrypted] = useState(false);
+
+  // Profile editing state
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Danger Zone / Account Deletion state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const openProfileEditor = () => {
+    setProfileName(user?.name || '');
+    setProfileEmail(user?.email || '');
+    setProfileCurrentPassword('');
+    setProfileError('');
+    setIsProfileModalOpen(true);
+  };
+
+  const closeProfileEditor = () => {
+    if (!isSavingProfile) setIsProfileModalOpen(false);
+  };
+
+  const handleSaveProfile = async (event) => {
+    event.preventDefault();
+    setProfileError('');
+
+    const nextEmail = profileEmail.trim().toLowerCase();
+    const currentEmail = (user?.email || '').toLowerCase();
+    const emailChanged = nextEmail !== currentEmail;
+
+    if (!nextEmail) {
+      setProfileError('Email address is required.');
+      return;
+    }
+
+    if (emailChanged && !profileCurrentPassword) {
+      setProfileError('Enter your current password to change the email address.');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const profilePayload = {
+        name: profileName.trim(),
+        email: nextEmail,
+      };
+      let preparedRekey = null;
+
+      if (emailChanged) {
+        profilePayload.currentPassword = profileCurrentPassword;
+
+        if (!isExtension) {
+          preparedRekey = await prepareEmailRekey(
+            nextEmail,
+            entries,
+            profileCurrentPassword
+          );
+          profilePayload.vaultEntries = preparedRekey.entries;
+        }
+      }
+
+      await updateProfile(
+        profilePayload,
+        preparedRekey
+          ? { beforeApply: () => commitEmailRekey(preparedRekey.key) }
+          : undefined
+      );
+
+      if (isNative && emailChanged) {
+        await mobileAuth.clearSecureCredentials(user.email);
+        await mobileAuth.saveSecureCredentials(nextEmail, profileCurrentPassword);
+      }
+
+      if (!isExtension) await fetchEntries();
+      setIsProfileModalOpen(false);
+      setProfileCurrentPassword('');
+    } catch (err) {
+      console.error('Profile update failed:', err);
+      setProfileError(err.message || 'Failed to update profile.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const handleDeleteAccount = async () => {
     if (emailInput !== user?.email) return;
@@ -460,11 +545,17 @@ export default function SettingsPage() {
       <div className="space-y-4 text-left">
         {/* Account Info */}
         <div className="p-3.5 rounded-xl bg-surface-dark border border-border-dark space-y-3 shadow-md">
-          <div className="flex items-center gap-2 border-b border-border-dark/50 pb-2">
-            <User className="w-4 h-4 text-accent-teal" />
-            <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Account Overview</h3>
+          <div className="flex items-center justify-between gap-2 border-b border-border-dark/50 pb-2">
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-accent-teal" />
+              <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Account Overview</h3>
+            </div>
           </div>
           <div className="space-y-2 text-xs">
+            <div>
+              <p className="text-[10px] text-text-secondary">Name</p>
+              <p className="font-semibold text-text-primary mt-0.5 break-all">{user?.name || 'Not set'}</p>
+            </div>
             <div>
               <p className="text-[10px] text-text-secondary">Logged in Email</p>
               <p className="font-semibold text-text-primary mt-0.5 break-all">{user?.email || 'N/A'}</p>
@@ -561,11 +652,12 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Log Out Button */}
         <button
+          type="button"
           onClick={logout}
           className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
         >
+          <LogOut className="w-3.5 h-3.5" />
           <span>Log Out of Vault</span>
         </button>
       </div>
@@ -583,11 +675,26 @@ export default function SettingsPage() {
 
       {/* Account Info */}
       <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-4">
-        <div className="flex items-center gap-3 border-b border-border-dark/50 pb-3">
-          <User className="w-5 h-5 text-accent-teal" />
-          <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">Account Overview</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border-dark/50 pb-3">
+          <div className="flex items-center gap-3">
+            <User className="w-5 h-5 text-accent-teal" />
+            <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">Account Overview</h3>
+          </div>
+          <button
+            type="button"
+            onClick={openProfileEditor}
+            title="Edit profile"
+            aria-label="Edit profile"
+            className="rounded-lg p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-accent-teal"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <p className="text-xs text-text-secondary">Name</p>
+            <p className="font-semibold text-text-primary mt-0.5 break-all">{user?.name || 'Not set'}</p>
+          </div>
           <div>
             <p className="text-xs text-text-secondary">Logged in Email</p>
             <p className="font-semibold text-text-primary mt-0.5 break-all">{user?.email || 'N/A'}</p>
@@ -914,6 +1021,21 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {isProfileModalOpen && (
+        <ProfileEditModal
+          name={profileName}
+          email={profileEmail}
+          currentPassword={profileCurrentPassword}
+          error={profileError}
+          isSaving={isSavingProfile}
+          onNameChange={setProfileName}
+          onEmailChange={setProfileEmail}
+          onPasswordChange={setProfileCurrentPassword}
+          onClose={closeProfileEditor}
+          onSubmit={handleSaveProfile}
+        />
       )}
     </div>
   );

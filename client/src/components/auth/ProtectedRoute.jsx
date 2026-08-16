@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCrypto } from '../../contexts/CryptoContext';
@@ -9,6 +10,7 @@ export const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, isLoading, user, logout } = useAuth();
   const { isUnlocked, isUnlockStateLoading, unlock } = useCrypto();
   const [unlockPassword, setUnlockPassword] = useState('');
+  const [showUnlockPassword, setShowUnlockPassword] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [error, setError] = useState('');
   const [hasBiometric, setHasBiometric] = useState(false);
@@ -116,15 +118,27 @@ export const ProtectedRoute = ({ children }) => {
               <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 Master Password
               </label>
-              <input
-                type="password"
-                required
-                disabled={isUnlocking}
-                value={unlockPassword}
-                onChange={(e) => setUnlockPassword(e.target.value)}
-                className={`w-full px-4 py-3 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/50 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isExtension ? 'text-xs py-2' : 'text-sm'}`}
-                placeholder="••••••••••••••••"
-              />
+              <div className="relative">
+                <input
+                  type={showUnlockPassword ? 'text' : 'password'}
+                  required
+                  disabled={isUnlocking}
+                  value={unlockPassword}
+                  onChange={(e) => setUnlockPassword(e.target.value)}
+                  className={`w-full pl-4 pr-12 py-3 rounded-lg bg-bg-dark border border-border-dark text-text-primary placeholder-text-secondary/50 focus:outline-none focus:border-accent-teal focus:ring-1 focus:ring-accent-teal/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isExtension ? 'text-xs py-2' : 'text-sm'}`}
+                  placeholder="••••••••••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowUnlockPassword((visible) => !visible)}
+                  disabled={isUnlocking}
+                  aria-label={showUnlockPassword ? 'Hide master password' : 'Show master password'}
+                  title={showUnlockPassword ? 'Hide master password' : 'Show master password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {showUnlockPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             {error && (

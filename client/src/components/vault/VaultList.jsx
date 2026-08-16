@@ -1,4 +1,3 @@
-import React from 'react';
 import VaultCard from './VaultCard';
 import { Shield, Plus } from 'lucide-react';
 import { isExtension } from '../../utils/platform';
@@ -11,7 +10,8 @@ export default function VaultList({
   onOpenAddEntry,
   selectedIds = [],
   onToggleSelectEntry,
-  onClone
+  onClone,
+  onRequestRestore,
 }) {
   
   if (isLoading && filteredEntries.length === 0) {
@@ -101,6 +101,7 @@ export default function VaultList({
           isSelected={selectedIds.includes(entry._id)}
           onToggleSelect={onToggleSelectEntry}
           onClone={onClone}
+          onRequestRestore={onRequestRestore}
         />
       ))}
     </div>

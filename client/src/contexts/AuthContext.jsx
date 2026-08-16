@@ -11,6 +11,7 @@ const getMinimalUser = (user) => {
   if (!user) return null;
   return {
     id: user.id || user._id,
+    name: user.name || '',
     email: user.email,
   };
 };
@@ -214,11 +215,12 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (email, password, masterPasswordHint, registrationKey) => {
+  const register = async (email, password, masterPasswordHint, registrationKey, name = '') => {
     setIsLoading(true);
     try {
       if (isExtension) {
-        const response = await api.post('/auth/register', { 
+          const response = await api.post('/auth/register', {
+          name,
           email, 
           password, 
           masterPasswordHint,
@@ -239,6 +241,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       const response = await api.post('/auth/register', { 
+        name,
         email, 
         password, 
         masterPasswordHint,
@@ -257,6 +260,39 @@ export const AuthProvider = ({ children }) => {
       clearToken();
       clearCachedUser();
       throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const updateProfile = async (profile, { beforeApply } = {}) => {
+    setIsLoading(true);
+    try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'UPDATE_PROFILE',
+          ...profile,
+        });
+        if (!response?.success) {
+          throw new Error(response?.error || 'Failed to update profile.');
+        }
+        cacheUser(response.user);
+        setUser(response.user);
+        setIsAuthenticated(true);
+        return response;
+      }
+
+      const response = await api.patch('/auth/profile', profile);
+      if (response.success && response.user) {
+        if (beforeApply) await beforeApply(response);
+        setToken(response.token);
+        cacheUser(response.user);
+        setUser(response.user);
+        setIsAuthenticated(true);
+        return response;
+      }
+
+      throw new Error(response.message || 'Failed to update profile.');
     } finally {
       setIsLoading(false);
     }
@@ -339,7 +375,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, lock, deleteAccount }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, updateProfile, logout, lock, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

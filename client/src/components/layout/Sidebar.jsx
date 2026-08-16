@@ -5,9 +5,7 @@ import {
   Key, 
   Star, 
   Folder, 
-  Lock, 
   Settings, 
-  LogOut,
   Globe,
   Database,
   Mail,
@@ -21,8 +19,6 @@ import {
   Trash2,
   RefreshCw
 } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
-import { useCrypto } from '../../contexts/CryptoContext';
 import { useVault } from '../../contexts/VaultContext';
 
 // Map categories to icons
@@ -53,8 +49,6 @@ export default function Sidebar({
   onOpenSettings,
   onLogoClick
 }) {
-  const { logout } = useAuth();
-  const { lock } = useCrypto();
   const { entries, fetchEntries, isLoading } = useVault();
 
   // Get item count helper (excluding items currently in the trash for active views)
@@ -227,23 +221,6 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Sidebar Footer */}
-      <div className="p-4 border-t border-border-dark/50 space-y-2">
-        <button
-          onClick={() => lock()}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-surface-hover hover:bg-border-dark border border-border-dark text-text-primary text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer"
-        >
-          <Lock className="w-3.5 h-3.5" />
-          <span>Lock Vault</span>
-        </button>
-        <button
-          onClick={() => logout()}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-red-500/5 hover:bg-red-500/10 border border-red-500/10 hover:border-red-500/20 text-red-400 text-xs font-medium transition-all active:scale-[0.98] cursor-pointer"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          <span>Log Out</span>
-        </button>
-      </div>
     </aside>
   );
 }

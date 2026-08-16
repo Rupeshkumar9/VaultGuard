@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCrypto } from '../contexts/CryptoContext';
@@ -129,9 +130,12 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-colors text-[10px]"
+                  aria-label={showPassword ? 'Hide master password' : 'Show master password'}
+                  title={showPassword ? 'Hide master password' : 'Show master password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-text-secondary hover:text-text-primary transition-colors text-[10px] cursor-pointer"
                 >
-                  {showPassword ? 'Hide' : 'Show'}
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  <span>{showPassword ? 'Hide' : 'Show'}</span>
                 </button>
               </div>
             </div>
@@ -228,9 +232,12 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-colors text-xs"
+                aria-label={showPassword ? 'Hide master password' : 'Show master password'}
+                title={showPassword ? 'Hide master password' : 'Show master password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-text-secondary hover:text-text-primary transition-colors text-xs cursor-pointer"
               >
-                {showPassword ? 'Hide' : 'Show'}
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                <span>{showPassword ? 'Hide' : 'Show'}</span>
               </button>
             </div>
           </div>

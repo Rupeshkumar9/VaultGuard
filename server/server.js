@@ -81,7 +81,9 @@ const generalLimiter = process.env.NODE_ENV === 'development'
     });
 
 // ──── Body Parsing ────
-app.use(express.json({ limit: '10kb' })); // Limit body size
+// Profile email changes may include re-encrypted vault ciphertext. The
+// ciphertext is still opaque to the server, but a normal vault can exceed 10kb.
+app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
