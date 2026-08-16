@@ -294,6 +294,118 @@ router.patch('/profile', protect, async (req, res, next) => {
 });
 
 // ──────────────────────────────────────────────
+// PATCH /api/auth/password
+// Change the master password and replace the encrypted vault payloads in one transaction.
+// ──────────────────────────────────────────────
+router.patch('/password', protect, async (req, res, next) => {
+  let session;
+
+  try {
+    const { currentPassword, newPassword, vaultEntries } = req.body;
+
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+      const error = new Error('Current password is required.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      const error = new Error('New password must be at least 8 characters.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (currentPassword === newPassword) {
+      const error = new Error('New password must be different from the current password.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!Array.isArray(vaultEntries) || vaultEntries.length > 1000) {
+      const error = new Error('A complete encrypted vault payload is required to change your password.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (vaultEntries.some((entry) => (
+      !entry ||
+      typeof entry.encryptedData !== 'string' ||
+      typeof entry.iv !== 'string' ||
+      typeof entry.salt !== 'string'
+    ))) {
+      const error = new Error('The encrypted vault payload is invalid.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    session = await mongoose.startSession();
+    let updatedUser;
+
+    await session.withTransaction(async () => {
+      const user = await User.findById(req.user._id).select('+password').session(session);
+      if (!user) {
+        const error = new Error('User account not found.');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (!(await user.comparePassword(currentPassword))) {
+        const error = new Error('Current password is incorrect.');
+        error.statusCode = 401;
+        throw error;
+      }
+
+      const ids = vaultEntries.map((entry) => String(entry.id || entry._id));
+      const uniqueIds = new Set(ids);
+      if (ids.some((id) => !mongoose.isValidObjectId(id)) || uniqueIds.size !== ids.length) {
+        const error = new Error('The encrypted vault payload contains invalid entry IDs.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const existingEntries = await VaultEntry.find({
+        _id: { $in: ids },
+        user: user._id,
+      }).select('_id').session(session);
+
+      if (existingEntries.length !== ids.length) {
+        const error = new Error('The encrypted vault payload is incomplete or invalid.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (vaultEntries.length > 0) {
+        await VaultEntry.bulkWrite(
+          vaultEntries.map((entry) => ({
+            updateOne: {
+              filter: { _id: entry.id || entry._id, user: user._id },
+              update: {
+                $set: {
+                  encryptedData: entry.encryptedData,
+                  iv: entry.iv,
+                  salt: entry.salt,
+                },
+              },
+            },
+          })),
+          { session }
+        );
+      }
+
+      user.password = newPassword;
+      await user.save({ session });
+      updatedUser = user;
+    });
+
+    sendTokenResponse(updatedUser, 200, res);
+  } catch (error) {
+    next(error);
+  } finally {
+    if (session) await session.endSession();
+  }
+});
+
+// ──────────────────────────────────────────────
 // DELETE /api/auth/delete-account
 // Delete current user account and all vault entries
 // ──────────────────────────────────────────────

@@ -585,6 +585,81 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await resetAutoLockTimer();
           return { success: true, user: profileResponse.user, token: profileResponse.token };
         }
+        case 'CHANGE_PASSWORD': {
+          const session = await chrome.storage.session.get(['masterPassword', 'user']);
+          if (!session.masterPassword || !session.user?.email) {
+            return { success: false, error: 'Vault is locked.' };
+          }
+
+          const currentPassword = boundedString(message.currentPassword, 'Current password', { required: true, trim: false });
+          const newPassword = boundedString(message.newPassword, 'New password', { required: true, trim: false });
+          if (currentPassword !== session.masterPassword) {
+            return { success: false, error: 'Current password is incorrect.' };
+          }
+          if (newPassword.length < 8) {
+            return { success: false, error: 'New password must be at least 8 characters.' };
+          }
+          if (newPassword === currentPassword) {
+            return { success: false, error: 'New password must be different from the current password.' };
+          }
+
+          const vaultResponse = await apiRequest('/vault?trash=all');
+          if (!vaultResponse.success || !Array.isArray(vaultResponse.data)) {
+            throw new Error(vaultResponse.message || 'Failed to load the encrypted vault.');
+          }
+
+          const oldKey = await getMasterKey(currentPassword);
+          const newKey = await getMasterKeyForEmail(newPassword, session.user.email);
+          const vaultEntries = await Promise.all(vaultResponse.data.map(async (entry) => {
+            if (!entry.encryptedData || !entry.iv) {
+              throw new Error(`Credential "${entry.title}" cannot be re-encrypted.`);
+            }
+
+            const plaintext = await decryptSensitiveEntry(entry, oldKey, currentPassword);
+            const encrypted = await encryptWithKey(JSON.stringify(plaintext), newKey);
+            return {
+              id: entry._id,
+              encryptedData: encrypted.encryptedData,
+              iv: encrypted.iv,
+              salt: 'migrated',
+            };
+          }));
+
+          const passwordResponse = await apiRequest('/auth/password', 'PATCH', {
+            currentPassword,
+            newPassword,
+            vaultEntries,
+          });
+          if (!passwordResponse.success || !passwordResponse.user) {
+            throw new Error(passwordResponse.message || 'Failed to change master password.');
+          }
+
+          await chrome.storage.session.set({
+            token: passwordResponse.token,
+            user: passwordResponse.user,
+            masterPassword: newPassword,
+          });
+          await chrome.storage.local.set({
+            cachedUser: {
+              id: passwordResponse.user.id || passwordResponse.user._id,
+              name: passwordResponse.user.name || '',
+              email: passwordResponse.user.email,
+            },
+          });
+
+          const settings = await chrome.storage.local.get(['rememberVault']);
+          if (settings.rememberVault) {
+            await localDb.saveRememberedSession({
+              token: passwordResponse.token,
+              user: passwordResponse.user,
+              masterPassword: newPassword,
+            });
+          }
+
+          await syncVault();
+          await resetAutoLockTimer();
+          return { success: true, user: passwordResponse.user, token: passwordResponse.token };
+        }
         case 'SYNC_VAULT': {
           return await syncVault();
         }

@@ -247,6 +247,47 @@ export const CryptoProvider = ({ children }) => {
     return true;
   };
 
+  const preparePasswordRekey = async (newPassword, entries, currentPassword) => {
+    if (isExtension) {
+      throw new Error('Password rekeying is handled by the extension background service.');
+    }
+
+    const activePassword = getMasterPassword();
+    if (currentPassword !== activePassword) {
+      throw new Error('Current password does not match the unlocked vault.');
+    }
+
+    const nextKey = await deriveMasterKey(newPassword, user.email);
+    const encryptedEntries = await Promise.all(entries.map(async (entry) => {
+      if (entry.decryptionError) {
+        throw new Error(`Cannot re-encrypt "${entry.title}" because it could not be decrypted.`);
+      }
+
+      const sensitivePayload = JSON.stringify({
+        username: entry.username || '',
+        password: entry.password || '',
+        notes: entry.notes || '',
+      });
+      const encrypted = await encryptWithKey(sensitivePayload, nextKey);
+      return {
+        id: entry._id,
+        encryptedData: encrypted.encryptedData,
+        iv: encrypted.iv,
+        salt: 'migrated',
+      };
+    }));
+
+    return { key: nextKey, entries: encryptedEntries };
+  };
+
+  const commitPasswordRekey = async (nextKey, nextPassword) => {
+    masterPasswordRef.current = nextPassword;
+    masterKeyRef.current = nextKey;
+    const keyBase64 = await exportKeyToBase64(nextKey);
+    sessionStorage.setItem('vaultguard_session_master_key', keyBase64);
+    return true;
+  };
+
   /**
    * Helper to encrypt plaintext using the pre-derived master key.
    * @param {string} plaintext - Data to encrypt
@@ -304,6 +345,8 @@ export const CryptoProvider = ({ children }) => {
       getMasterPassword,
       prepareEmailRekey,
       commitEmailRekey,
+      preparePasswordRekey,
+      commitPasswordRekey,
       encryptData,
       decryptData
     }}>

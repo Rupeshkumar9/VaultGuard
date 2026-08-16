@@ -13,19 +13,29 @@ import {
   RefreshCw,
   ExternalLink,
   Pencil,
-  LogOut
+  LogOut,
+  KeyRound
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useVault } from '../contexts/VaultContext';
 import { useCrypto } from '../contexts/CryptoContext';
 import ProfileEditModal from '../components/common/ProfileEditModal';
+import ChangePasswordModal from '../components/common/ChangePasswordModal';
 import { isExtension, isNative } from '../utils/platform';
 import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function SettingsPage() {
-  const { user, logout, deleteAccount, updateProfile } = useAuth();
+  const { user, logout, deleteAccount, updateProfile, changePassword } = useAuth();
   const { entries, addEntry, fetchEntries, deleteEntry } = useVault();
-  const { isUnlocked, decryptData, getMasterPassword, prepareEmailRekey, commitEmailRekey } = useCrypto();
+  const {
+    isUnlocked,
+    decryptData,
+    getMasterPassword,
+    prepareEmailRekey,
+    commitEmailRekey,
+    preparePasswordRekey,
+    commitPasswordRekey,
+  } = useCrypto();
   const [isExportingDecrypted, setIsExportingDecrypted] = useState(false);
 
   // Profile editing state
@@ -35,6 +45,14 @@ export default function SettingsPage() {
   const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
   const [profileError, setProfileError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Master password change state
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Danger Zone / Account Deletion state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -113,6 +131,77 @@ export default function SettingsPage() {
       setProfileError(err.message || 'Failed to update profile.');
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const openPasswordEditor = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    setIsPasswordModalOpen(true);
+  };
+
+  const closePasswordEditor = () => {
+    if (!isChangingPassword) setIsPasswordModalOpen(false);
+  };
+
+  const handleChangePassword = async (event) => {
+    event.preventDefault();
+    setPasswordError('');
+
+    if (!currentPassword) {
+      setPasswordError('Enter your current master password.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError('The new master password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('The new password and confirmation do not match.');
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setPasswordError('The new password must be different from the current password.');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      let preparedRekey = null;
+      if (!isExtension) {
+        preparedRekey = await preparePasswordRekey(newPassword, entries, currentPassword);
+      }
+
+      await changePassword(
+        {
+          currentPassword,
+          newPassword,
+          vaultEntries: preparedRekey?.entries || [],
+        },
+        preparedRekey
+          ? { beforeApply: () => commitPasswordRekey(preparedRekey.key, newPassword) }
+          : undefined
+      );
+
+      if (isNative) {
+        await mobileAuth.saveSecureCredentials(user.email, newPassword);
+        if (localStorage.getItem('vaultguard_mobile_keep_unlocked') === 'true') {
+          await mobileAuth.saveAutoUnlockPassword(newPassword);
+        }
+      }
+
+      if (!isExtension) await fetchEntries();
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setIsPasswordModalOpen(false);
+    } catch (err) {
+      console.error('Master password change failed:', err);
+      setPasswordError(err.message || 'Failed to change master password.');
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -588,6 +677,20 @@ export default function SettingsPage() {
               <option value="30" className="bg-surface-dark">30 Minutes</option>
               <option value="0" className="bg-surface-dark">Never Lock</option>
             </select>
+
+            <button
+              type="button"
+              onClick={openPasswordEditor}
+              className="mt-2 w-full rounded-lg border border-border-dark bg-bg-dark px-2.5 py-2 text-left transition-all hover:border-accent-teal/30 hover:bg-surface-hover"
+            >
+              <span className="flex items-center gap-2 text-xs font-semibold text-text-primary">
+                <KeyRound className="h-3.5 w-3.5 text-accent-teal" />
+                Change Master Password
+              </span>
+              <span className="mt-1 block pl-5 text-[10px] leading-4 text-text-secondary/70">
+                Re-encrypt the vault with a new password.
+              </span>
+            </button>
           </div>
         </div>
 
@@ -660,6 +763,21 @@ export default function SettingsPage() {
           <LogOut className="w-3.5 h-3.5" />
           <span>Log Out of Vault</span>
         </button>
+
+        {isPasswordModalOpen && (
+          <ChangePasswordModal
+            currentPassword={currentPassword}
+            newPassword={newPassword}
+            confirmPassword={confirmPassword}
+            error={passwordError}
+            isSaving={isChangingPassword}
+            onCurrentPasswordChange={setCurrentPassword}
+            onNewPasswordChange={setNewPassword}
+            onConfirmPasswordChange={setConfirmPassword}
+            onClose={closePasswordEditor}
+            onSubmit={handleChangePassword}
+          />
+        )}
       </div>
     );
   }
@@ -730,6 +848,20 @@ export default function SettingsPage() {
           <p className="text-[10px] text-text-secondary/60">
             Automatically lock the vault (clearing keys from memory) if there is no keyboard, mouse or touch activity.
           </p>
+
+          <button
+            type="button"
+            onClick={openPasswordEditor}
+            className="w-full rounded-xl border border-border-dark bg-bg-dark p-3 text-left transition-all hover:border-accent-teal/30 hover:bg-surface-hover"
+          >
+            <span className="flex items-center gap-2 text-xs font-semibold text-text-primary">
+              <KeyRound className="h-4 w-4 text-accent-teal" />
+              Change Master Password
+            </span>
+            <span className="mt-1 block pl-6 text-[10px] leading-4 text-text-secondary/70">
+              Re-encrypt the vault with a new password.
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1035,6 +1167,21 @@ export default function SettingsPage() {
           onPasswordChange={setProfileCurrentPassword}
           onClose={closeProfileEditor}
           onSubmit={handleSaveProfile}
+        />
+      )}
+
+      {isPasswordModalOpen && (
+        <ChangePasswordModal
+          currentPassword={currentPassword}
+          newPassword={newPassword}
+          confirmPassword={confirmPassword}
+          error={passwordError}
+          isSaving={isChangingPassword}
+          onCurrentPasswordChange={setCurrentPassword}
+          onNewPasswordChange={setNewPassword}
+          onConfirmPasswordChange={setConfirmPassword}
+          onClose={closePasswordEditor}
+          onSubmit={handleChangePassword}
         />
       )}
     </div>

@@ -11,6 +11,7 @@ import EntryForm from '../components/vault/EntryForm';
 import BulkEntryForm from '../components/vault/BulkEntryForm';
 import PasswordGenerator from '../components/generator/PasswordGenerator';
 import ConfirmationModal from '../components/common/ConfirmationModal';
+import ProcessingOverlay from '../components/common/ProcessingOverlay';
 import SettingsPage from './SettingsPage';
 import { useVault } from '../contexts/VaultContext';
 import { useAutoLock } from '../hooks/useAutoLock';
@@ -41,7 +42,6 @@ export default function VaultPage() {
     entries, 
     isLoading, 
     fetchEntries, 
-    addEntry,
     deleteEntry, 
     deleteEntries,
     restoreEntry,
@@ -78,6 +78,8 @@ export default function VaultPage() {
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [isAddingEntry, setIsAddingEntry] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
+  const [cloneDraft, setCloneDraft] = useState(null);
+  const [isCloning, setIsCloning] = useState(false);
 
   // Fetch entries on mount
   useEffect(() => {
@@ -282,25 +284,22 @@ export default function VaultPage() {
     }
   };
 
-  const handleCloneEntry = async (entry) => {
-    try {
-      const clonedData = {
+  const handleCloneEntry = (entry) => {
+    setCloneDraft(null);
+    setIsCloning(true);
+
+    // Keep the clone client-side until the user confirms Save Credential.
+    window.setTimeout(() => {
+      setCloneDraft({
         title: `${entry.title} (Clone)`,
         website: entry.website || '',
         category: entry.category || 'General',
         username: entry.username || '',
         password: entry.password || '',
-        notes: entry.notes || ''
-      };
-      
-      const clonedEntry = await addEntry(clonedData);
-      if (clonedEntry) {
-        setEditingEntry(clonedEntry);
-      }
-    } catch (err) {
-      console.error('Failed to clone entry:', err);
-      alert('Failed to clone entry');
-    }
+        notes: entry.notes || '',
+      });
+      setIsCloning(false);
+    }, 250);
   };
 
   const handleToggleSelectEntry = (id) => {
@@ -555,6 +554,25 @@ export default function VaultPage() {
             entry={editingEntry}
             onClose={handleCloseEditForm}
           />
+        )}
+
+        {cloneDraft && (
+          <EntryForm
+            entry={cloneDraft}
+            isClone
+            onClose={() => setCloneDraft(null)}
+          />
+        )}
+
+        {isCloning && (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center bg-bg-dark/80 p-4 backdrop-blur-sm">
+            <div className="relative min-h-32 w-full max-w-md overflow-hidden rounded-2xl border border-border-dark bg-surface-dark shadow-2xl">
+              <ProcessingOverlay
+                title="Cloning credential..."
+                description="Preparing a copy for you to review."
+              />
+            </div>
+          </div>
         )}
 
         {confirmation && (
@@ -862,6 +880,25 @@ export default function VaultPage() {
           entry={editingEntry}
           onClose={handleCloseEditForm}
         />
+      )}
+
+      {cloneDraft && (
+        <EntryForm
+          entry={cloneDraft}
+          isClone
+          onClose={() => setCloneDraft(null)}
+        />
+      )}
+
+      {isCloning && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-bg-dark/80 p-4 backdrop-blur-sm">
+          <div className="relative min-h-32 w-full max-w-md overflow-hidden rounded-2xl border border-border-dark bg-surface-dark shadow-2xl">
+            <ProcessingOverlay
+              title="Cloning credential..."
+              description="Preparing a copy for you to review."
+            />
+          </div>
+        </div>
       )}
 
       {isBulkEditing && (

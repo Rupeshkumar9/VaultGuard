@@ -298,6 +298,44 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const changePassword = async ({ currentPassword, newPassword, vaultEntries = [] }, { beforeApply } = {}) => {
+    setIsLoading(true);
+    try {
+      if (isExtension) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'CHANGE_PASSWORD',
+          currentPassword,
+          newPassword,
+        });
+        if (!response?.success) {
+          throw new Error(response?.error || 'Failed to change master password.');
+        }
+        cacheUser(response.user);
+        setUser(response.user);
+        setIsAuthenticated(true);
+        return response;
+      }
+
+      const response = await api.patch('/auth/password', {
+        currentPassword,
+        newPassword,
+        vaultEntries,
+      });
+      if (response.success && response.user) {
+        if (beforeApply) await beforeApply(response);
+        setToken(response.token);
+        cacheUser(response.user);
+        setUser(response.user);
+        setIsAuthenticated(true);
+        return response;
+      }
+
+      throw new Error(response.message || 'Failed to change master password.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -375,7 +413,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, updateProfile, logout, lock, deleteAccount }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, updateProfile, changePassword, logout, lock, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

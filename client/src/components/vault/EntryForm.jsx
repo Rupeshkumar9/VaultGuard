@@ -18,7 +18,7 @@ const CATEGORIES = [
   'Other',
 ];
 
-export default function EntryForm({ entry, onClose }) {
+export default function EntryForm({ entry, isClone = false, onClose }) {
   const { addEntry, updateEntry } = useVault();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -32,7 +32,7 @@ export default function EntryForm({ entry, onClose }) {
   const [notes, setNotes] = useState('');
 
   const [showPassword, setShowPassword] = useState(false);
-  const isEditMode = !!entry;
+  const isEditMode = !!entry && !isClone;
 
   // Inline Password Generator states
   const [showGenerator, setShowGenerator] = useState(false);
@@ -95,7 +95,7 @@ export default function EntryForm({ entry, onClose }) {
       username: username.trim(),
       password,
       notes: notes.trim(),
-      isFavorite: entry?.isFavorite || false,
+      isFavorite: isClone ? false : (entry?.isFavorite || false),
     };
 
     try {
