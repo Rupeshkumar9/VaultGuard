@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema(
   {
@@ -17,11 +16,15 @@ const userSchema = new mongoose.Schema(
       trim: true,
       match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email'],
     },
-    password: {
+    // OPAQUE registration record. The client derives this record from the
+    // password; the server never receives or stores the password.
+    opaqueRegistration: {
       type: String,
-      required: [true, 'Password is required'],
-      minlength: [8, 'Password must be at least 8 characters'],
-      select: false, // Don't include password in queries by default
+      select: false,
+    },
+    opaqueIdentifier: {
+      type: String,
+      select: false,
     },
     masterPasswordHint: {
       type: String,
@@ -33,18 +36,5 @@ const userSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
-
-// Hash password before saving
-userSchema.pre('save', async function () {
-  if (!this.isModified('password')) return;
-
-  const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 12;
-  this.password = await bcrypt.hash(this.password, saltRounds);
-});
-
-// Compare entered password with hashed password
-userSchema.methods.comparePassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
-};
 
 module.exports = mongoose.model('User', userSchema);

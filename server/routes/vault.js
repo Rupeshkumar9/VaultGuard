@@ -4,6 +4,14 @@ const { protect } = require('../middleware/auth');
 
 const router = express.Router();
 
+const MAX_BULK_IDS = 1000;
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const validateIds = (ids) => (
+  Array.isArray(ids) &&
+  ids.length <= MAX_BULK_IDS &&
+  ids.every((id) => typeof id === 'string' && require('mongoose').isValidObjectId(id))
+);
+
 // All vault routes require authentication
 router.use(protect);
 
@@ -35,10 +43,11 @@ router.get('/', async (req, res, next) => {
       filter.isFavorite = true;
     }
 
-    if (search) {
+    if (typeof search === 'string' && search.trim()) {
+      const safeSearch = escapeRegex(search.trim().slice(0, 100));
       filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { website: { $regex: search, $options: 'i' } },
+        { title: { $regex: safeSearch, $options: 'i' } },
+        { website: { $regex: safeSearch, $options: 'i' } },
       ];
     }
 
@@ -232,7 +241,7 @@ router.patch('/:id/last-used', async (req, res, next) => {
 router.post('/update-bulk', async (req, res, next) => {
   try {
     const { ids, updates } = req.body;
-    if (!ids || !Array.isArray(ids) || !updates) {
+    if (!validateIds(ids) || !updates || typeof updates !== 'object' || Array.isArray(updates)) {
       return res.status(400).json({
         success: false,
         message: 'IDs array and updates object are required.',
@@ -267,7 +276,7 @@ router.post('/update-bulk', async (req, res, next) => {
 router.post('/delete-bulk', async (req, res, next) => {
   try {
     const { ids } = req.body;
-    if (!ids || !Array.isArray(ids)) {
+    if (!validateIds(ids)) {
       return res.status(400).json({
         success: false,
         message: 'An array of IDs is required for bulk deletion.',
@@ -296,7 +305,7 @@ router.post('/delete-bulk', async (req, res, next) => {
 router.post('/delete-bulk-permanent', async (req, res, next) => {
   try {
     const { ids } = req.body;
-    if (!ids || !Array.isArray(ids)) {
+    if (!validateIds(ids)) {
       return res.status(400).json({
         success: false,
         message: 'An array of IDs is required for permanent deletion.',
@@ -325,7 +334,7 @@ router.post('/delete-bulk-permanent', async (req, res, next) => {
 router.post('/restore-bulk', async (req, res, next) => {
   try {
     const { ids } = req.body;
-    if (!ids || !Array.isArray(ids)) {
+    if (!validateIds(ids)) {
       return res.status(400).json({
         success: false,
         message: 'An array of IDs is required for bulk restoration.',

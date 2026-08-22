@@ -54,6 +54,29 @@ export const vaultBridge = {
       console.warn('VaultBridge selectCredential not available:', err.message);
       return false;
     }
+  },
+
+  async isBiometricAvailable() {
+    const result = await VaultBridge.isBiometricAvailable();
+    return !!result?.isAvailable;
+  },
+
+  async verifyBiometric() {
+    await VaultBridge.verifyBiometric();
+    return true;
+  },
+
+  async saveBiometricCredentials(email, password) {
+    await VaultBridge.saveBiometricCredentials({ email, password });
+    return true;
+  },
+
+  async loadBiometricCredentials() {
+    return VaultBridge.loadBiometricCredentials();
+  },
+
+  async clearBiometricCredentials() {
+    await VaultBridge.clearBiometricCredentials();
+    return true;
   }
 };
-

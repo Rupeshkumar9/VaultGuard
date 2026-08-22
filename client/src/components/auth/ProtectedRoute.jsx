@@ -21,17 +21,7 @@ export const ProtectedRoute = ({ children }) => {
     if (!isNative || isUnlocked || !isAuthenticated || !user?.email) return;
 
     const attemptAutoUnlock = async () => {
-      // 1. Check if Keep Unlocked (Remember Password) is enabled
-      const isKeepUnlocked = localStorage.getItem('vaultguard_mobile_keep_unlocked') === 'true';
-      if (isKeepUnlocked) {
-        const savedPassword = await mobileAuth.getAutoUnlockPassword();
-        if (savedPassword) {
-          const success = await unlock(savedPassword);
-          if (success) return;
-        }
-      }
-
-      // 2. Check if Biometrics/Device Lock is available
+      // Biometric unlock must always be backed by native authentication.
       const available = await mobileAuth.checkBiometricAvailable();
       setHasBiometric(available);
 

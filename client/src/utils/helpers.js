@@ -1,4 +1,4 @@
-import { getSiteHostname, sitesMatch } from './siteIdentity';
+import { getSiteHostname, parseSiteIdentity, sitesMatch } from './siteIdentity';
 
 /**
  * Helper utilities for VaultGuard.
@@ -18,6 +18,22 @@ export const getDomain = (url) => {
  * Return no remote URL so callers use their built-in generic site icon.
  */
 export const getFaviconUrl = () => '';
+
+/**
+ * Return a navigable HTTP(S) URL for a saved website, or an empty string for
+ * malformed/untrusted values. This prevents saved text from becoming a
+ * javascript:, data:, or other dangerous link in the UI.
+ */
+export const getSafeWebsiteUrl = (value) => {
+  if (!parseSiteIdentity(value)) return '';
+  try {
+    const raw = value.trim();
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+};
 
 /**
  * Formats a date string nicely (e.g., "May 22, 2026").

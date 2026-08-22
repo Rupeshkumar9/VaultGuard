@@ -24,7 +24,7 @@ export const clearToken = () => {
 
 /**
  * Base request function.
- * @param {string} endpoint - API path (e.g. '/auth/login')
+ * @param {string} endpoint - API path (e.g. '/auth/opaque/login/start')
  * @param {object} options - Fetch options
  */
 const request = async (endpoint, options = {}) => {

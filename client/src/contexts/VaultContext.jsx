@@ -80,75 +80,17 @@ export const VaultProvider = ({ children }) => {
     if (isExtension) return;
     const syncAndVerify = async () => {
       if (isUnlocked) {
-        if (entries.length > 0) {
-          const activeEntries = entries.filter(e => !e.isInTrash);
-          await vaultBridge.updateVault(activeEntries);
-          // Verify the sync worked
-          const diag = await vaultBridge.diagnose();
-          console.log('[VaultSync] Diagnosis after sync:', diag);
-        }
+        const activeEntries = entries.filter(e => !e.isInTrash);
+        await vaultBridge.updateVault(activeEntries);
+        // Verify the sync worked
+        const diag = await vaultBridge.diagnose();
+        console.log('[VaultSync] Diagnosis after sync:', diag);
       } else {
         vaultBridge.clearVault();
       }
     };
     syncAndVerify();
   }, [entries, isUnlocked]);
-
-  // Helper to migrate legacy ciphers (with individual salts) to the new single-key format in the background
-  const triggerBackgroundMigration = useCallback(async (decryptedList) => {
-    if (isExtension) return;
-    const legacyEntries = decryptedList.filter(entry => entry.salt && entry.salt !== 'migrated');
-    if (legacyEntries.length === 0) return;
-
-    console.log(`[Migration] Found ${legacyEntries.length} legacy entries. Migrating in background...`);
-    
-    let migratedCount = 0;
-    for (const entry of legacyEntries) {
-      try {
-        const sensitivePayload = JSON.stringify({ 
-          username: entry.username, 
-          password: entry.password, 
-          notes: entry.notes 
-        });
-        const { encryptedData, iv, salt } = await encryptData(sensitivePayload);
-        
-        const response = await api.put(`/vault/${entry._id}`, {
-          title: entry.title,
-          website: entry.website,
-          category: entry.category,
-          encryptedData,
-          iv,
-          salt, // will be 'migrated'
-          notes: '',
-          isFavorite: entry.isFavorite,
-        });
-
-        if (response.success) {
-          migratedCount++;
-        }
-      } catch (err) {
-        console.error(`[Migration] Failed to migrate entry ${entry.title}:`, err);
-      }
-    }
-
-    if (migratedCount > 0) {
-      console.log(`[Migration] Successfully migrated ${migratedCount} entries. Refreshing vault...`);
-      try {
-        const response = await api.get('/vault?trash=all');
-        if (response.success && response.data) {
-          if (isNative) {
-            await localDb.saveEntries(response.data);
-          }
-          const decrypted = await Promise.all(
-            response.data.map(e => decryptEntry(e))
-          );
-          setEntries(decrypted);
-        }
-      } catch (err) {
-        console.error('[Migration] Failed to refresh vault after migration:', err);
-      }
-    }
-  }, [encryptData, decryptEntry]);
 
   // Fetch and decrypt all entries
   const fetchEntries = useCallback(async () => {
@@ -178,8 +120,6 @@ export const VaultProvider = ({ children }) => {
         );
         setEntries(decryptedEntries);
         
-        // Trigger background migration if there are legacy entries
-        triggerBackgroundMigration(decryptedEntries);
       } else {
         throw new Error(response.message || 'Failed to fetch vault entries');
       }
@@ -189,7 +129,7 @@ export const VaultProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [isUnlocked, decryptEntry, triggerBackgroundMigration]);
+  }, [isUnlocked, decryptEntry]);
 
   // Add a new vault entry
   const addEntry = async (entryData, skipFetch = false) => {

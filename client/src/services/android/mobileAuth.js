@@ -1,5 +1,5 @@
-import { NativeBiometric } from 'capacitor-native-biometric';
 import { localDb } from './localDb';
+import { vaultBridge } from './vaultBridge';
 
 export const mobileAuth = {
   /**
@@ -8,8 +8,7 @@ export const mobileAuth = {
    */
   async checkBiometricAvailable() {
     try {
-      const result = await NativeBiometric.isAvailable();
-      return !!result.isAvailable;
+      return await vaultBridge.isBiometricAvailable();
     } catch (err) {
       console.warn('Biometrics not available on this device:', err);
       return false;
@@ -25,13 +24,7 @@ export const mobileAuth = {
       const isAvailable = await this.checkBiometricAvailable();
       if (!isAvailable) return false;
 
-      await NativeBiometric.verifyIdentity({
-        reason: "Unlock your VaultGuard secure database",
-        title: "Biometric Unlock",
-        subtitle: "Scan your fingerprint or face to unlock your vault",
-        description: "Provide your biometric credentials to access your passwords.",
-        negativeButtonText: "Cancel"
-      });
+      await vaultBridge.verifyBiometric();
       return true;
     } catch (err) {
       console.error('Biometric authentication failed:', err);
@@ -47,12 +40,7 @@ export const mobileAuth = {
   async saveSecureCredentials(email, password) {
     try {
       if (!email || !password) return;
-      await NativeBiometric.setCredentials({
-        username: email,
-        password: password,
-        server: "vaultguard.auth",
-        useBiometrics: true
-      });
+      await vaultBridge.saveBiometricCredentials(email, password);
     } catch (err) {
       console.error('Failed to save biometric credentials:', err);
     }
@@ -66,24 +54,8 @@ export const mobileAuth = {
   async loadSecureCredentials(email) {
     try {
       if (!email) return null;
-      const isAvailable = await this.checkBiometricAvailable();
-      if (!isAvailable) return null;
-
-      // 1. Prompt system biometric or pattern/PIN passcode verification
-      await NativeBiometric.verifyIdentity({
-        reason: "Unlock your VaultGuard secure database",
-        title: "Biometric Unlock",
-        subtitle: "Scan your fingerprint/face or enter your device PIN/pattern to unlock your vault",
-        description: "Provide your biometric credentials to access your passwords.",
-        negativeButtonText: "Cancel",
-        useFallback: true
-      });
-
-      // 2. If verified, retrieve credentials from secure storage
-      const credentials = await NativeBiometric.getCredentials({
-        username: email,
-        server: "vaultguard.auth"
-      });
+      if (!(await this.checkBiometricAvailable())) return null;
+      const credentials = await vaultBridge.loadBiometricCredentials();
       return credentials?.password || null;
     } catch (err) {
       console.error('Failed to load biometric credentials:', err);
@@ -98,31 +70,14 @@ export const mobileAuth = {
   async clearSecureCredentials(email) {
     try {
       if (!email) return;
-      await NativeBiometric.deleteCredentials({
-        username: email,
-        server: "vaultguard.auth"
-      });
+      await vaultBridge.clearBiometricCredentials();
     } catch (err) {
       console.error('Failed to clear biometric credentials:', err);
     }
   },
 
   /**
-   * Save password in IndexedDB user metadata (for Keep Unlocked).
-   */
-  async saveAutoUnlockPassword(password) {
-    return await localDb.saveAutoUnlockPassword(password);
-  },
-
-  /**
-   * Load password from IndexedDB.
-   */
-  async getAutoUnlockPassword() {
-    return await localDb.getAutoUnlockPassword();
-  },
-
-  /**
-   * Delete password from IndexedDB.
+   * Delete any legacy password record from IndexedDB.
    */
   async clearAutoUnlockPassword() {
     return await localDb.clearAutoUnlockPassword();

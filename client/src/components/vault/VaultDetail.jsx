@@ -13,7 +13,7 @@ import {
   Star,
   RefreshCw
 } from 'lucide-react';
-import { getFaviconUrl, getDomain, formatDate } from '../../utils/helpers';
+import { getFaviconUrl, getDomain, getSafeWebsiteUrl, formatDate } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 import { isExtension } from '../../utils/platform';
@@ -32,6 +32,7 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
 
   const domain = entry.website ? getDomain(entry.website) : '';
   const favicon = domain ? getFaviconUrl(entry.website) : null;
+  const websiteUrl = getSafeWebsiteUrl(entry.website);
 
   const handleCopyUsername = () => {
     copyUsername(entry.username);
@@ -132,9 +133,9 @@ export default function VaultDetail({ entry, onClose, onEdit, onDelete, onRestor
             </div>
             <div>
               <p className="text-[10px] uppercase font-bold tracking-wider text-text-secondary/60">Website</p>
-              {entry.website ? (
+              {websiteUrl ? (
                 <a 
-                  href={entry.website.startsWith('http') ? entry.website : `https://${entry.website}`}
+                  href={websiteUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-accent-teal hover:underline font-medium mt-1 truncate max-w-full"

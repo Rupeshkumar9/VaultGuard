@@ -28,3 +28,5 @@ test('rejects unsupported schemes', () => {
   assert.equal(parseSiteIdentity('javascript:alert(1)'), null);
   assert.equal(parseSiteIdentity('chrome://settings'), null);
 });
+
+

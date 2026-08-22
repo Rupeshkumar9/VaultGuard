@@ -2,13 +2,11 @@ import { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useCrypto } from '../contexts/CryptoContext';
 import { isExtension, isNative } from '../utils/platform';
 import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const { unlock } = useCrypto();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -50,26 +48,16 @@ export default function LoginPage() {
       const res = await login(email, password, { rememberVault: isExtension && rememberPassword });
       
       if (res && res.success) {
-        // 2. Cache master password in CryptoContext to enable client-side encryption
-        if (!isExtension) {
-          await unlock(password, true);
-        }
-        
-        // Save mobile preferences
+        // Account authentication and vault unlocking are separate steps. The
+        // protected route will display the vault unlock screen explicitly.
+        // Store only authentication-bound biometric credentials on native devices.
+        // Never persist the master password in web storage or IndexedDB.
         if (isNative) {
-          if (rememberPassword) {
-            localStorage.setItem('vaultguard_mobile_keep_unlocked', 'true');
-            await mobileAuth.saveAutoUnlockPassword(password);
-          } else {
-            localStorage.removeItem('vaultguard_mobile_keep_unlocked');
-            await mobileAuth.clearAutoUnlockPassword();
-          }
-
-          // Always save secure credentials in device KeyStore/Keychain for biometrics/device lock
+          await mobileAuth.clearAutoUnlockPassword();
           await mobileAuth.saveSecureCredentials(email, password);
         }
 
-        // 3. Redirect to the main vault page
+        // Redirect to the protected dashboard, which will ask for the master password.
         navigate('/');
       }
     } catch (err) {

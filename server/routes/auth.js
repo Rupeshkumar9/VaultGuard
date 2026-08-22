@@ -1,11 +1,37 @@
 const express = require('express');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const VaultEntry = require('../models/VaultEntry');
 const { protect } = require('../middleware/auth');
+const opaqueAuth = require('../opaqueAuth');
 
 const router = express.Router();
+
+const getCompleteVaultEntryIds = async (vaultEntries, userId, session) => {
+  const ids = vaultEntries.map((entry) => String(entry.id || entry._id || ''));
+  const uniqueIds = new Set(ids);
+
+  if (ids.some((id) => !mongoose.isValidObjectId(id)) || uniqueIds.size !== ids.length) {
+    const error = new Error('The encrypted vault payload contains invalid entry IDs.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const existingEntries = await VaultEntry.find({ user: userId })
+    .select('_id')
+    .session(session);
+  const existingIds = new Set(existingEntries.map((entry) => String(entry._id)));
+
+  if (existingIds.size !== ids.length || ids.some((id) => !existingIds.has(id))) {
+    const error = new Error('The encrypted vault payload is incomplete or invalid.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return ids;
+};
 
 /**
  * Helper: Generate JWT token and set it as HTTP-only cookie
@@ -30,82 +56,144 @@ const sendTokenResponse = (user, statusCode, res) => {
       name: user.name || '',
       email: user.email,
       masterPasswordHint: user.masterPasswordHint,
+      authScheme: 'opaque',
     },
   });
 };
 
 // ──────────────────────────────────────────────
-// POST /api/auth/register
-// Register a new user (single user app, but still needs auth)
+// OPAQUE authentication endpoints
 // ──────────────────────────────────────────────
-router.post('/register', async (req, res, next) => {
+router.post('/opaque/register/start', async (req, res, next) => {
   try {
-    const { name, email, password, masterPasswordHint, registrationKey } = req.body;
-
-    if (!name || !String(name).trim() || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Name, email, and password are required.',
-      });
+    const { email, registrationRequest, registrationKey } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail) || typeof registrationRequest !== 'string' || !registrationRequest) {
+      return res.status(400).json({ success: false, message: 'Valid registration details are required.' });
+    }
+    if (!process.env.REGISTRATION_KEY || registrationKey !== process.env.REGISTRATION_KEY) {
+      return res.status(403).json({ success: false, message: 'Invalid registration key.' });
+    }
+    if (await User.exists({ email: normalizedEmail })) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
 
-    // Always require registration key validation
-    const serverKey = process.env.REGISTRATION_KEY;
-    if (!serverKey || registrationKey !== serverKey) {
-      return res.status(403).json({
-        success: false,
-        message: 'Invalid registration key. To request a key, email rupeshkumar45670234@gmail.com.',
-      });
+    const result = await opaqueAuth.createRegistrationResponse({
+      userIdentifier: crypto.randomUUID(),
+      registrationRequest,
+      kind: 'register',
+      email: normalizedEmail,
+    });
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/opaque/register/finish', async (req, res, next) => {
+  try {
+    const {
+      challengeId,
+      email,
+      name,
+      masterPasswordHint,
+      registrationKey,
+      registrationRecord,
+    } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail) ||
+        typeof challengeId !== 'string' ||
+        typeof registrationRecord !== 'string' ||
+        !registrationRecord) {
+      return res.status(400).json({ success: false, message: 'Valid registration details are required.' });
+    }
+    if (!process.env.REGISTRATION_KEY || registrationKey !== process.env.REGISTRATION_KEY) {
+      return res.status(403).json({ success: false, message: 'Invalid registration key.' });
+    }
+
+    const challenge = opaqueAuth.consumeChallenge(challengeId, 'register');
+    if (challenge.email !== normalizedEmail) {
+      return res.status(401).json({ success: false, message: 'Invalid registration challenge.' });
+    }
+    if (await User.exists({ email: normalizedEmail })) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
 
     const user = await User.create({
-      name: String(name).trim(),
-      email,
-      password,
+      name: String(name || '').trim(),
+      email: normalizedEmail,
       masterPasswordHint: masterPasswordHint || '',
+      opaqueRegistration: registrationRecord,
+      opaqueIdentifier: challenge.userIdentifier,
     });
-
     sendTokenResponse(user, 201, res);
   } catch (error) {
     next(error);
   }
 });
 
-// ──────────────────────────────────────────────
-// POST /api/auth/login
-// Login with email and password
-// ──────────────────────────────────────────────
-router.post('/login', async (req, res, next) => {
+router.post('/opaque/login/start', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and password are required.',
-      });
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const startLoginRequest = req.body.startLoginRequest;
+    if (!/^\S+@\S+\.\S+$/.test(email) || typeof startLoginRequest !== 'string' || !startLoginRequest) {
+      return res.status(400).json({ success: false, message: 'Invalid login request.' });
     }
 
-    // Find user and include password field
-    const user = await User.findOne({ email }).select('+password');
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials.',
-      });
+    const user = await User.findOne({ email }).select('+opaqueRegistration +opaqueIdentifier');
+    if (!user?.opaqueRegistration) {
+      return res.status(404).json({ success: false, message: 'OPAQUE authentication is not enrolled.' });
     }
 
-    const isMatch = await user.comparePassword(password);
+    const result = await opaqueAuth.startLogin({
+      userIdentifier: user.opaqueIdentifier,
+      registrationRecord: user.opaqueRegistration,
+      startLoginRequest,
+      email,
+    });
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+});
 
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials.',
-      });
+router.post('/opaque/login/finish', async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const { challengeId, finishLoginRequest } = req.body;
+    if (!/^\S+@\S+\.\S+$/.test(email) || typeof challengeId !== 'string' || typeof finishLoginRequest !== 'string') {
+      return res.status(400).json({ success: false, message: 'Invalid login request.' });
     }
 
+    await opaqueAuth.finishLogin({ challengeId, finishLoginRequest, email });
+    const user = await User.findOne({ email }).select('+opaqueRegistration');
+    if (!user?.opaqueRegistration) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials.' });
+    }
     sendTokenResponse(user, 200, res);
+  } catch (error) {
+    error.statusCode = error.statusCode || 401;
+    next(error);
+  }
+});
+
+router.post('/opaque/password/start', protect, async (req, res, next) => {
+  try {
+    if (typeof req.body.registrationRequest !== 'string' || !req.body.registrationRequest) {
+      return res.status(400).json({ success: false, message: 'Invalid OPAQUE password-change request.' });
+    }
+    const user = await User.findById(req.user._id).select('+opaqueIdentifier');
+    if (!user) return res.status(404).json({ success: false, message: 'User account not found.' });
+
+    const userIdentifier = user.opaqueIdentifier || crypto.randomUUID();
+    const result = await opaqueAuth.createRegistrationResponse({
+      userIdentifier,
+      registrationRequest: req.body.registrationRequest,
+      kind: 'password',
+      userId: String(user._id),
+      email: user.email,
+    });
+    res.status(200).json({ success: true, ...result });
   } catch (error) {
     next(error);
   }
@@ -143,6 +231,7 @@ router.get('/me', protect, async (req, res) => {
       name: req.user.name || '',
       email: req.user.email,
       masterPasswordHint: req.user.masterPasswordHint,
+      authScheme: 'opaque',
     },
   });
 });
@@ -159,7 +248,6 @@ router.patch('/profile', protect, async (req, res, next) => {
     const {
       name,
       email,
-      currentPassword,
       vaultEntries,
     } = req.body;
 
@@ -179,12 +267,6 @@ router.patch('/profile', protect, async (req, res, next) => {
     }
 
     const emailChanged = nextEmail !== req.user.email;
-    if (emailChanged && (!currentPassword || typeof currentPassword !== 'string')) {
-      const error = new Error('Current password is required to change your email.');
-      error.statusCode = 400;
-      throw error;
-    }
-
     if (emailChanged && (!Array.isArray(vaultEntries) || vaultEntries.length > 1000)) {
       const error = new Error('A complete encrypted vault payload is required to change your email.');
       error.statusCode = 400;
@@ -216,16 +298,10 @@ router.patch('/profile', protect, async (req, res, next) => {
     let updatedUser;
 
     await session.withTransaction(async () => {
-      const user = await User.findById(req.user._id).select('+password').session(session);
+      const user = await User.findById(req.user._id).session(session);
       if (!user) {
         const error = new Error('User account not found.');
         error.statusCode = 404;
-        throw error;
-      }
-
-      if (emailChanged && !(await user.comparePassword(currentPassword))) {
-        const error = new Error('Current password is incorrect.');
-        error.statusCode = 401;
         throw error;
       }
 
@@ -241,24 +317,7 @@ router.patch('/profile', protect, async (req, res, next) => {
           throw error;
         }
 
-        const ids = vaultEntries.map((entry) => String(entry.id || entry._id));
-        const uniqueIds = new Set(ids);
-        if (ids.some((id) => !mongoose.isValidObjectId(id)) || uniqueIds.size !== ids.length) {
-          const error = new Error('The encrypted vault payload contains invalid entry IDs.');
-          error.statusCode = 400;
-          throw error;
-        }
-
-        const existingEntries = await VaultEntry.find({
-          _id: { $in: ids },
-          user: user._id,
-        }).select('_id').session(session);
-
-        if (existingEntries.length !== ids.length) {
-          const error = new Error('The encrypted vault payload is incomplete or invalid.');
-          error.statusCode = 400;
-          throw error;
-        }
+        const ids = await getCompleteVaultEntryIds(vaultEntries, user._id, session);
 
         if (vaultEntries.length > 0) {
           await VaultEntry.bulkWrite(
@@ -301,22 +360,12 @@ router.patch('/password', protect, async (req, res, next) => {
   let session;
 
   try {
-    const { currentPassword, newPassword, vaultEntries } = req.body;
+    const { opaqueChallengeId, opaqueRegistrationRecord, vaultEntries } = req.body;
 
-    if (typeof currentPassword !== 'string' || !currentPassword) {
-      const error = new Error('Current password is required.');
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (typeof newPassword !== 'string' || newPassword.length < 8) {
-      const error = new Error('New password must be at least 8 characters.');
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (currentPassword === newPassword) {
-      const error = new Error('New password must be different from the current password.');
+    if (typeof opaqueChallengeId !== 'string' ||
+        typeof opaqueRegistrationRecord !== 'string' ||
+        !opaqueRegistrationRecord) {
+      const error = new Error('A valid OPAQUE password-change request is required.');
       error.statusCode = 400;
       throw error;
     }
@@ -342,37 +391,23 @@ router.patch('/password', protect, async (req, res, next) => {
     let updatedUser;
 
     await session.withTransaction(async () => {
-      const user = await User.findById(req.user._id).select('+password').session(session);
+      const user = await User.findById(req.user._id)
+        .select('+opaqueIdentifier')
+        .session(session);
       if (!user) {
         const error = new Error('User account not found.');
         error.statusCode = 404;
         throw error;
       }
 
-      if (!(await user.comparePassword(currentPassword))) {
-        const error = new Error('Current password is incorrect.');
+      const challenge = opaqueAuth.consumeChallenge(opaqueChallengeId, 'password');
+      if (challenge.userId !== String(user._id)) {
+        const error = new Error('Invalid OPAQUE password-change challenge.');
         error.statusCode = 401;
         throw error;
       }
 
-      const ids = vaultEntries.map((entry) => String(entry.id || entry._id));
-      const uniqueIds = new Set(ids);
-      if (ids.some((id) => !mongoose.isValidObjectId(id)) || uniqueIds.size !== ids.length) {
-        const error = new Error('The encrypted vault payload contains invalid entry IDs.');
-        error.statusCode = 400;
-        throw error;
-      }
-
-      const existingEntries = await VaultEntry.find({
-        _id: { $in: ids },
-        user: user._id,
-      }).select('_id').session(session);
-
-      if (existingEntries.length !== ids.length) {
-        const error = new Error('The encrypted vault payload is incomplete or invalid.');
-        error.statusCode = 400;
-        throw error;
-      }
+      const ids = await getCompleteVaultEntryIds(vaultEntries, user._id, session);
 
       if (vaultEntries.length > 0) {
         await VaultEntry.bulkWrite(
@@ -392,7 +427,8 @@ router.patch('/password', protect, async (req, res, next) => {
         );
       }
 
-      user.password = newPassword;
+      user.opaqueRegistration = opaqueRegistrationRecord;
+      user.opaqueIdentifier = user.opaqueIdentifier || crypto.randomUUID();
       await user.save({ session });
       updatedUser = user;
     });

@@ -16,7 +16,7 @@ VaultGuard is built on a **Zero-Knowledge** security model. Your master password
 
 ### 2. Client-Server Web Architecture
 The Web Dashboard operates under a secure online client-server model:
-* **Direct Server Authentication**: Master passwords and session tokens are validated in real time against the backend, completely bypassing local browser database caches.
+* **OPAQUE Authentication**: The client proves knowledge of the master password using the OPAQUE PAKE protocol; the raw password is never sent to or stored by the backend. Session tokens are validated in real time against the backend, completely bypassing local browser database caches.
 * **Zero Browser Database Caching**: No credentials or user profile metadata are written to persistent browser databases (like IndexedDB) on the web. This prevents cross-user database contamination and guarantees clean, isolated sessions when switching between different accounts on the same browser.
 * **Secure Session Memory**: Cryptographic keys are maintained strictly in-memory (`sessionStorage`) for the duration of the browser tab session, ensuring zero persistent traces of raw encryption material are left on the physical disk.
 
@@ -104,8 +104,9 @@ Follow these steps to run VaultGuard locally on your machine.
    JWT_SECRET=your_jwt_signing_secret_here
    JWT_EXPIRES_IN=your_jwt_expiration_time
 
-   # Encryption - Number of salt rounds for bcrypt
-   BCRYPT_SALT_ROUNDS=your_bcrypt_salt_rounds_here
+   # OPAQUE PAKE server setup. Generate once and keep unchanged.
+   # Example: node -e "const o=require('@serenity-kit/opaque'); o.ready.then(()=>console.log(o.server.createSetup()))"
+   OPAQUE_SERVER_SETUP=your_stable_opaque_server_setup_here
 
    # CORS - Allowed Frontend origin URL
    CLIENT_URL= your_localHost_address

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VaultGuard",
-  "version": "2.6",
+  "version": "2.7",
   "description": "Zero-knowledge password manager companion for VaultGuard.",
   "permissions": [
     "storage",
@@ -27,6 +27,9 @@
   "background": {
     "scripts": ["worker-dist/background.js"],
     "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "content_scripts": [
     {

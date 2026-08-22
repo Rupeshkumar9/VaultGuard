@@ -3,9 +3,10 @@
  * Developed by Rupesh (https://github.com/rupeshkumar9)
  */
 
-import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy } from './crypto-helper.js';
+import { deriveMasterKey, encryptWithKey, decryptWithKey } from './crypto-helper.js';
 import { localDb } from './local-db.js';
 import { parseSiteIdentity, sitesMatch } from '../client/src/utils/siteIdentity.js';
+import { client as opaqueClient, ready as opaqueReady } from '@serenity-kit/opaque';
 
 const AUTO_LOCK_ALARM = 'vaultguard-auto-lock';
 const MAX_FIELD_LENGTH = 10000;
@@ -18,6 +19,7 @@ const CONTENT_SCRIPT_ACTIONS = new Set([
   'SET_PENDING_CREDENTIAL',
   'GET_PENDING_CREDENTIAL',
   'CLEAR_PENDING_CREDENTIAL',
+  'SET_FOCUSED_FRAME',
   'USER_ACTIVITY',
 ]);
 
@@ -194,6 +196,26 @@ async function apiRequest(endpoint, method = 'GET', body = null) {
   }
 }
 
+async function authenticateWithServer(email, password) {
+  await opaqueReady;
+  const start = opaqueClient.startLogin({ password });
+  const challenge = await apiRequest('/auth/opaque/login/start', 'POST', {
+    email,
+    startLoginRequest: start.startLoginRequest,
+  });
+  const result = opaqueClient.finishLogin({
+    clientLoginState: start.clientLoginState,
+    loginResponse: challenge.loginResponse,
+    password,
+  });
+  if (!result) throw Object.assign(new Error('Invalid credentials.'), { status: 401 });
+  return apiRequest('/auth/opaque/login/finish', 'POST', {
+    email,
+    challengeId: challenge.challengeId,
+    finishLoginRequest: result.finishLoginRequest,
+  });
+}
+
 // ──── Session and Locking Management ────
 async function lockVault({ forgetPersistent = false } = {}) {
   await chrome.alarms.clear(AUTO_LOCK_ALARM);
@@ -306,14 +328,12 @@ async function loadEncryptedEntries(sessionEntries) {
   return entries;
 }
 
-async function decryptSensitiveEntry(entry, masterKey, masterPassword) {
+async function decryptSensitiveEntry(entry, masterKey) {
   if (!entry?.encryptedData || !entry?.iv) {
     return { username: '', password: '', notes: entry?.notes || '' };
   }
 
-  const plaintext = entry.salt === 'migrated' || entry.salt === 'none' || !entry.salt
-    ? await decryptWithKey(entry.encryptedData, entry.iv, masterKey)
-    : await decryptLegacy(entry.encryptedData, entry.iv, entry.salt, masterPassword);
+  const plaintext = await decryptWithKey(entry.encryptedData, entry.iv, masterKey);
   return JSON.parse(plaintext);
 }
 
@@ -358,6 +378,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const settings = await chrome.storage.local.get(['lockTimeout']);
           return { lockTimeout: settings.lockTimeout || '5' };
         }
+        case 'SET_FOCUSED_FRAME': {
+          if (!sender.tab?.id || !sender.frameId) {
+            return { success: true };
+          }
+          const focusedSite = getSenderSite(sender);
+          await chrome.storage.session.set({
+            focusedFrame: {
+              tabId: sender.tab.id,
+              frameId: sender.frameId,
+              website: focusedSite.origin,
+              timestamp: Date.now(),
+            },
+          });
+          return { success: true };
+        }
         case 'SET_LOCK_TIMEOUT': {
           const lockTimeout = String(message.lockTimeout);
           if (!['0', '1', '5', '15', '30'].includes(lockTimeout)) {
@@ -388,13 +423,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const testEntry = cachedEntries.find(e => e.encryptedData && e.iv && e.salt);
               
               if (testEntry) {
-                // Try to decrypt the entry to verify password
-                if (testEntry.salt === 'migrated' || testEntry.salt === 'none' || !testEntry.salt) {
-                  const masterKey = await deriveMasterKey(masterPassword, email);
-                  await decryptWithKey(testEntry.encryptedData, testEntry.iv, masterKey);
-                } else {
-                  await decryptLegacy(testEntry.encryptedData, testEntry.iv, testEntry.salt, masterPassword);
-                }
+                // All vault entries use the current single-key format.
+                const masterKey = await deriveMasterKey(masterPassword, email);
+                await decryptWithKey(testEntry.encryptedData, testEntry.iv, masterKey);
                 unlockedLocally = true;
                 userToUse = cachedUser;
               }
@@ -432,7 +463,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // terminate the worker while a required sync is still running.
             let refreshedUser = null;
             try {
-              const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
+              const loginRes = await authenticateWithServer(email, masterPassword);
               if (loginRes.success) {
                 refreshedUser = loginRes.user;
                 await chrome.storage.session.set({
@@ -467,7 +498,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return { success: true, user: refreshedUser || userToUse };
           } else {
             // Standard server-based authentication flow (for first login, different user, or changed password)
-            const loginRes = await apiRequest('/auth/login', 'POST', { email, password: masterPassword });
+            const loginRes = await authenticateWithServer(email, masterPassword);
             if (loginRes.success) {
               await chrome.storage.session.set({
                 token: loginRes.token,
@@ -538,7 +569,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 throw new Error(`Credential \"${entry.title}\" cannot be re-encrypted.`);
               }
 
-              const plaintext = await decryptSensitiveEntry(entry, oldKey, session.masterPassword);
+              const plaintext = await decryptSensitiveEntry(entry, oldKey);
               const encrypted = await encryptWithKey(JSON.stringify(plaintext), newKey);
               return {
                 id: entry._id,
@@ -552,7 +583,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const profileResponse = await apiRequest('/auth/profile', 'PATCH', {
             name,
             email,
-            currentPassword: emailChanged ? currentPassword : undefined,
             vaultEntries,
           });
 
@@ -632,18 +662,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           const decryptedList = [];
-          const legacyEntries = [];
 
           for (const entry of rawEntries) {
             try {
               if (entry.encryptedData && entry.iv && entry.salt) {
-                let plaintext;
-                if (entry.salt === 'migrated' || entry.salt === 'none' || !entry.salt) {
-                  plaintext = await decryptWithKey(entry.encryptedData, entry.iv, masterKey);
-                } else {
-                  plaintext = await decryptLegacy(entry.encryptedData, entry.iv, entry.salt, session.masterPassword);
-                  legacyEntries.push({ ...entry, plaintext });
-                }
+                const plaintext = await decryptWithKey(entry.encryptedData, entry.iv, masterKey);
                 const sensitive = JSON.parse(plaintext);
                 decryptedList.push({
                   ...entry,
@@ -671,36 +694,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
           }
 
-          // Trigger background migration for legacy entries if any exist
-          if (legacyEntries.length > 0) {
-            await (async () => {
-              console.log(`[Migration] Starting background migration for ${legacyEntries.length} entries...`);
-              let migratedCount = 0;
-              for (const entry of legacyEntries) {
-                try {
-                  const encrypted = await encryptWithKey(entry.plaintext, masterKey);
-                  const updatedEntryData = {
-                    title: entry.title,
-                    website: entry.website,
-                    category: entry.category || 'General',
-                    encryptedData: encrypted.encryptedData,
-                    iv: encrypted.iv,
-                    salt: 'migrated',
-                    notes: ''
-                  };
-                  await apiRequest(`/vault/${entry._id}`, 'PUT', updatedEntryData);
-                  migratedCount++;
-                } catch (err) {
-                  console.error(`[Migration] Failed to migrate entry ${entry.title}:`, err);
-                }
-              }
-              if (migratedCount > 0) {
-                console.log(`[Migration] Successfully migrated ${migratedCount} entries. Syncing vault...`);
-                await syncVault().catch(err => console.error('Sync failed after migration:', err));
-              }
-            })();
-          }
-
           return { success: true, entries: decryptedList };
         }
         case 'AUTOFILL_ENTRY': {
@@ -708,19 +701,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (!activeTab?.id || !activeTab.url) throw new Error('No active website tab was found.');
 
-          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          if (!parseSiteIdentity(activeTab.url)) throw new Error('The active tab is not a supported website.');
+
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries', 'focusedFrame']);
           if (!session.masterPassword) return { success: false, error: 'Vault is locked.' };
-          const entries = await matchingEntriesForSite(activeTab.url, session);
+          const entries = await loadEncryptedEntries(session.encryptedEntries);
           const entry = entries.find(candidate => String(candidate._id) === id);
-          if (!entry) return { success: false, error: 'Credential does not match the active site.' };
+          if (!entry) return { success: false, error: 'Credential was not found in the unlocked vault.' };
 
           const masterKey = await getMasterKey(session.masterPassword);
-          const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+          const sensitive = await decryptSensitiveEntry(entry, masterKey);
+          const focusedFrame = session.focusedFrame;
+          const frameId = focusedFrame && focusedFrame.tabId === activeTab.id &&
+            Date.now() - focusedFrame.timestamp < 30000 ? focusedFrame.frameId : 0;
           const response = await chrome.tabs.sendMessage(activeTab.id, {
             action: 'AUTOFILL_CREDENTIALS',
             username: sensitive.username || '',
             password: sensitive.password || '',
-          }, { frameId: 0 });
+          }, { frameId });
           if (!response?.success) return { success: false, error: 'No suitable login fields were found.' };
           await resetAutoLockTimer();
           return { success: true };
@@ -737,7 +735,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           for (const entry of entries) {
             try {
-              const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+              const sensitive = await decryptSensitiveEntry(entry, masterKey);
               credentials.push({
                 id: entry._id,
                 title: entry.title,
@@ -762,7 +760,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (!entry) return { success: false, error: 'Credential is not valid for this site.' };
 
           const masterKey = await getMasterKey(session.masterPassword);
-          const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+          const sensitive = await decryptSensitiveEntry(entry, masterKey);
           await resetAutoLockTimer();
           return {
             success: true,
@@ -786,7 +784,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           for (const entry of entries) {
             try {
-              const sensitive = await decryptSensitiveEntry(entry, masterKey, session.masterPassword);
+              const sensitive = await decryptSensitiveEntry(entry, masterKey);
               const sameUsername = (sensitive.username || '').toLowerCase() === username.toLowerCase();
               if (sameUsername && sensitive.password === password) {
                 return { success: true, exactMatch: true, usernameMatch: null };

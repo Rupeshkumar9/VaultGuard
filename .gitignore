@@ -23,7 +23,6 @@ lerna-debug.log*
 .vscode/
 !.vscode/extensions.json
 .idea/
-CODEBASE_STUDY_ROADMAP.md
 *.suo
 *.ntvs*
 *.njsproj
@@ -48,5 +47,7 @@ extension/worker-dist/
 # Developer guide containing local build instructions (ignored)
 DEVELOPER_GUIDE.md
 tasks.md
-VaultGuard-Chrome-v2.5.zip
-VaultGuard-Firefox-v2.5.zip
+VaultGuard_chrome_latest_ext.zip
+VaultGuard_firefox_latest_ext.zip
+
+

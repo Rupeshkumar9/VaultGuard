@@ -3,6 +3,11 @@ import { api, setToken, clearToken } from '../services/api';
 import { localDb } from '../services/android/localDb';
 import { isNative, isExtension } from '../utils/platform';
 import { mobileAuth } from '../services/android/mobileAuth';
+import {
+  createOpaqueRegistrationRecord,
+  loginWithOpaque,
+  registerWithOpaque,
+} from '../services/opaqueAuth';
 
 const AuthContext = createContext(null);
 const AUTH_CACHE_KEY = 'vaultguard_cached_user';
@@ -13,6 +18,7 @@ const getMinimalUser = (user) => {
     id: user.id || user._id,
     name: user.name || '',
     email: user.email,
+    authScheme: 'opaque',
   };
 };
 
@@ -196,7 +202,7 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      const response = await api.post('/auth/login', { email, password });
+      const response = await loginWithOpaque(email, password);
       if (response.success) {
         setToken(response.token);
         cacheUser(response.user);
@@ -219,13 +225,7 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(true);
     try {
       if (isExtension) {
-          const response = await api.post('/auth/register', {
-          name,
-          email, 
-          password, 
-          masterPasswordHint,
-          registrationKey
-        });
+        const response = await registerWithOpaque({ email, password, name, masterPasswordHint, registrationKey });
         if (response.success) {
           await chrome.runtime.sendMessage({
             action: 'UNLOCK_VAULT',
@@ -240,13 +240,7 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      const response = await api.post('/auth/register', { 
-        name,
-        email, 
-        password, 
-        masterPasswordHint,
-        registrationKey
-      });
+      const response = await registerWithOpaque({ email, password, name, masterPasswordHint, registrationKey });
       if (response.success) {
         setToken(response.token);
         cacheUser(response.user);
@@ -282,7 +276,9 @@ export const AuthProvider = ({ children }) => {
         return response;
       }
 
-      const response = await api.patch('/auth/profile', profile);
+      const safeProfile = { ...profile };
+      delete safeProfile.currentPassword;
+      const response = await api.patch('/auth/profile', safeProfile);
       if (response.success && response.user) {
         if (beforeApply) await beforeApply(response);
         setToken(response.token);
@@ -298,16 +294,17 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const changePassword = async ({ currentPassword, newPassword, vaultEntries = [] }, { beforeApply } = {}) => {
+  const changePassword = async ({ newPassword, vaultEntries = [] }, { beforeApply } = {}) => {
     setIsLoading(true);
     try {
       if (isExtension) {
         throw new Error('Changing the master password is available from the web dashboard or mobile app.');
       }
 
+      const opaquePassword = await createOpaqueRegistrationRecord(newPassword);
       const response = await api.patch('/auth/password', {
-        currentPassword,
-        newPassword,
+        opaqueChallengeId: opaquePassword.challengeId,
+        opaqueRegistrationRecord: opaquePassword.registrationRecord,
         vaultEntries,
       });
       if (response.success && response.user) {
@@ -333,7 +330,6 @@ export const AuthProvider = ({ children }) => {
       } else {
         await api.post('/auth/logout');
         if (isNative) {
-          localStorage.removeItem('vaultguard_mobile_keep_unlocked');
           if (user?.email) {
             await mobileAuth.clearSecureCredentials(user.email);
           }
@@ -344,6 +340,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Logout request failed:', error);
     } finally {
       clearToken();
+      sessionStorage.removeItem('vaultguard_session_master_key');
       clearCachedUser();
       setUser(null);
       setIsAuthenticated(false);
@@ -382,7 +379,6 @@ export const AuthProvider = ({ children }) => {
       } else {
         await api.delete('/auth/delete-account');
         if (isNative) {
-          localStorage.removeItem('vaultguard_mobile_keep_unlocked');
           if (user?.email) {
             await mobileAuth.clearSecureCredentials(user.email);
           }
@@ -394,6 +390,7 @@ export const AuthProvider = ({ children }) => {
       throw error;
     } finally {
       clearToken();
+      sessionStorage.removeItem('vaultguard_session_master_key');
       clearCachedUser();
       setUser(null);
       setIsAuthenticated(false);

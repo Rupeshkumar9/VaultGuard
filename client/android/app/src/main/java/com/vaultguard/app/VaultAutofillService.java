@@ -102,8 +102,8 @@ public class VaultAutofillService extends AutofillService {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             );
         } catch (Exception e) {
-            android.util.Log.e(TAG, "EncryptedSharedPreferences failed, falling back to standard SharedPreferences", e);
-            return context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE);
+            android.util.Log.e(TAG, "EncryptedSharedPreferences initialization failed; refusing plaintext fallback", e);
+            return null;
         }
     }
 
@@ -158,21 +158,6 @@ public class VaultAutofillService extends AutofillService {
             AssistStructure.WindowNode windowNode = structure.getWindowNodeAt(i);
             findAutofillNodes(windowNode.getRootViewNode(), autofillFields, isBrowserApp);
 
-            // Fallback: try extracting domain from window title (e.g. Opera shows "Sign in · GitHub")
-            if (autofillFields.webUrl == null && isBrowserApp) {
-                CharSequence windowTitle = windowNode.getTitle();
-                if (windowTitle != null) {
-                    String titleStr = windowTitle.toString().trim();
-                    // Try to find a domain-like pattern in the window title
-                    java.util.regex.Matcher matcher = java.util.regex.Pattern
-                        .compile("([a-zA-Z0-9-]+\\.(?:com|org|net|io|dev|co|me|app|tv|edu|gov|info|biz|us|uk|de|fr|jp|in|au|ca|br|ru|nl|se|no|fi|dk|ch|at|be|es|it|pt|pl|cz|hu|ro|bg|hr|sk|si|lt|lv|ee|ie|lu|mt|gr|cy|is)(?:\\.[a-z]{2})?)")
-                        .matcher(titleStr.toLowerCase());
-                    if (matcher.find()) {
-                        autofillFields.webUrl = matcher.group(1).replace("www.", "");
-                        android.util.Log.d(TAG, "Extracted domain from window title: " + autofillFields.webUrl + " (title: " + titleStr + ")");
-                    }
-                }
-            }
         }
 
         android.util.Log.d(TAG, "Username field found: " + (autofillFields.usernameId != null) +
@@ -192,8 +177,8 @@ public class VaultAutofillService extends AutofillService {
 
         // If it's a manual request, we only need a focused field to show the search chip.
         // Otherwise (automatic request), we require a username or password field.
-        // Special case for browsers: if we have a focused field + detected webUrl, allow autofill
-        // even without explicit username/password field detection (fixes Opera browser).
+        // A browser must expose both the focused field and an authenticated web
+        // document domain. Do not use arbitrary visible text as an origin.
         boolean canAutofill = (autofillFields.usernameId != null || autofillFields.passwordId != null) 
                            || (isManualRequest && autofillFields.focusedId != null)
                            || (isBrowserApp && autofillFields.focusedId != null && autofillFields.webUrl != null);
@@ -273,8 +258,11 @@ public class VaultAutofillService extends AutofillService {
 
     @Override
     public void onSaveRequest(SaveRequest request, SaveCallback callback) {
-        // We do not handle save requests from native autofill in this version
-        callback.onSuccess();
+        // A native autofill save cannot be safely persisted here because this
+        // service has no authenticated server session or vault encryption key.
+        // Do not acknowledge a save that was not actually stored.
+        android.util.Log.w(TAG, "Native autofill save is not supported yet");
+        callback.onFailure("VaultGuard cannot save new credentials from this form yet.");
     }
 
     // --- Helper classes and methods ---
@@ -365,37 +353,6 @@ public class VaultAutofillService extends AutofillService {
         String webDomain = node.getWebDomain();
         if (webDomain != null && !webDomain.isEmpty()) {
             fields.webUrl = webDomain;
-        } else if (fields.webUrl == null) {
-            // Try to extract webUrl from browser address bar node text
-            CharSequence text = node.getText();
-            if (text != null && text.length() > 0) {
-                String textStr = text.toString().trim();
-                if (textStr.contains(".") && !textStr.contains(" ") && textStr.length() > 3) {
-                    boolean isUrl = textStr.startsWith("http://") || textStr.startsWith("https://");
-                    if (!isUrl && node.getIdEntry() != null) {
-                        String idLower = node.getIdEntry().toLowerCase();
-                        isUrl = idLower.contains("url") || idLower.contains("address") || idLower.contains("location")
-                             || idLower.contains("search") || idLower.contains("edit") || idLower.contains("field")
-                             || idLower.contains("bar") || idLower.contains("title");
-                    }
-                    // For browser apps, accept ANY text node that looks like a domain
-                    // This fixes Opera which doesn't set webDomain or standard resource IDs
-                    if (!isUrl && isBrowserApp) {
-                        String possibleDomain = textStr;
-                        int slashIdx = possibleDomain.indexOf('/');
-                        if (slashIdx != -1) {
-                            possibleDomain = possibleDomain.substring(0, slashIdx);
-                        }
-                        // Accept if it matches a domain pattern
-                        isUrl = possibleDomain.matches("^[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,6}$");
-                    }
-
-                    if (isUrl) {
-                        fields.webUrl = extractDomain(textStr);
-                        android.util.Log.d(TAG, "Extracted browser webUrl: " + fields.webUrl + " from node: " + node.getIdEntry() + " with text: " + textStr);
-                    }
-                }
-            }
         }
 
         AutofillId nodeAutofillId = node.getAutofillId();
@@ -581,25 +538,6 @@ public class VaultAutofillService extends AutofillService {
             String cleanWebsite = extractDomain(websiteLower);
             if (domainMatches(cleanWebsite, cleanPageDomain)) {
                 return true;
-            }
-        }
-
-        // 3. Keyword package fallback match (e.g., website "facebook.com" matches package "com.facebook.katana")
-        if (packageName != null) {
-            String cleanWebsite = extractDomain(websiteLower);
-            int dotIdx = cleanWebsite.indexOf('.');
-            if (dotIdx != -1) {
-                String baseWord = cleanWebsite.substring(0, dotIdx);
-                // Only match if the base word is substantial (>3 chars) and appears as a
-                // discrete segment in the package name (between dots), not just a substring
-                if (baseWord.length() > 3) {
-                    String[] packageParts = packageName.toLowerCase().split("\\.");
-                    for (String part : packageParts) {
-                        if (part.equals(baseWord)) {
-                            return true;
-                        }
-                    }
-                }
             }
         }
 

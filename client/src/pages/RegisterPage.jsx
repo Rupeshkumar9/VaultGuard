@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useCrypto } from '../contexts/CryptoContext';
 import { isExtension, isNative } from '../utils/platform';
 import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function RegisterPage() {
   const { register, isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const { unlock } = useCrypto();
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -47,15 +45,14 @@ export default function RegisterPage() {
       const res = await register(email, password, masterPasswordHint, registrationKey, name);
       
       if (res && res.success) {
-        // 3. Unlock the client-side cryptosystem using the same password
-        await unlock(password, true);
-        
-        // Save mobile credentials securely in KeyStore/Keychain for biometrics/device lock
+        // Account registration and vault unlocking are separate steps. The
+        // protected route will display the vault unlock screen explicitly.
+        // Save mobile credentials securely in KeyStore/Keychain for biometrics/device lock.
         if (isNative) {
           await mobileAuth.saveSecureCredentials(email, password);
         }
 
-        // 4. Navigate to vault dashboard
+        // Navigate to the protected dashboard and ask for the master password.
         navigate('/');
       }
     } catch (err) {

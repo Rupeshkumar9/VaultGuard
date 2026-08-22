@@ -28,7 +28,9 @@ app.set('trust proxy', 1);
 // Set security HTTP headers
 app.use(helmet());
 
-// Enable CORS for the frontend (including local development and mobile Capacitor origins)
+// Enable CORS only for explicitly configured application origins. Extension IDs
+// are deployment-specific, so they must be listed in EXTENSION_ORIGINS rather
+// than allowing every installed extension to make credentialed requests.
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost',
@@ -37,17 +39,19 @@ const allowedOrigins = [
 if (process.env.CLIENT_URL) {
   process.env.CLIENT_URL.split(',').forEach(o => allowedOrigins.push(o.trim()));
 }
+if (process.env.EXTENSION_ORIGINS) {
+  process.env.EXTENSION_ORIGINS.split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+    .forEach(origin => allowedOrigins.push(origin));
+}
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, postman, curl) or browser extensions
-      const isExtensionOrigin =
-        origin &&
-        (origin.startsWith('chrome-extension://') ||
-          origin.startsWith('moz-extension://'));
-
-      if (!origin || allowedOrigins.includes(origin) || isExtensionOrigin) {
+      // Requests without an Origin are kept for native clients and CLI health
+      // checks. Browser origins must be explicitly allowlisted.
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));

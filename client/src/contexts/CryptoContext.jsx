@@ -1,11 +1,18 @@
 import React, { createContext, useState, useRef, useContext, useEffect } from 'react';
-import { deriveMasterKey, encryptWithKey, decryptWithKey, decryptLegacy, exportKeyToBase64, importKeyFromBase64 } from '../services/crypto';
+import {
+  deriveMasterKey,
+  encryptWithKey,
+  decryptWithKey,
+  exportKeyToBase64,
+  importKeyFromBase64,
+} from '../services/crypto';
 import { useAuth } from './AuthContext';
 import { isExtension, isNative } from '../utils/platform';
-import { api } from '../services/api';
 import { localDb } from '../services/android/localDb';
+import { loginWithOpaque } from '../services/opaqueAuth';
 
 const CryptoContext = createContext(null);
+const SESSION_MASTER_KEY = 'vaultguard_session_master_key';
 
 export const CryptoProvider = ({ children }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -53,6 +60,48 @@ export const CryptoProvider = ({ children }) => {
     };
   }, [isAuthenticated]);
 
+  // Restore a tab-scoped vault key after a page refresh. The raw master
+  // password is never stored. sessionStorage is cleared when the tab closes
+  // and is explicitly cleared whenever the vault is locked.
+  useEffect(() => {
+    if (isExtension || isNative || !isAuthenticated || !user?.email || isUnlocked) return;
+    let cancelled = false;
+
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SESSION_MASTER_KEY) || 'null');
+      if (!saved || saved.email !== user.email || !saved.key) return undefined;
+
+      importKeyFromBase64(saved.key).then((sessionKey) => {
+        if (cancelled || !user?.email || user.email !== saved.email) return;
+        masterKeyRef.current = sessionKey;
+        setIsUnlocked(true);
+      }).catch((error) => {
+        console.warn('Failed to restore the tab-scoped vault key:', error);
+        sessionStorage.removeItem(SESSION_MASTER_KEY);
+      });
+    } catch (error) {
+      console.warn('Failed to read the tab-scoped vault key:', error);
+      sessionStorage.removeItem(SESSION_MASTER_KEY);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, isUnlocked, user?.email]);
+
+  const saveTabScopedKey = async (password, email) => {
+    if (isExtension || isNative || !password || !email) return;
+    try {
+      // Keep the working key non-exportable. Derive a separate exportable key
+      // only for this tab's session persistence.
+      const sessionKey = await deriveMasterKey(password, email, { extractable: true });
+      const key = await exportKeyToBase64(sessionKey);
+      sessionStorage.setItem(SESSION_MASTER_KEY, JSON.stringify({ email, key }));
+    } catch (error) {
+      console.warn('Failed to save the tab-scoped vault key:', error);
+    }
+  };
+
   // If user logs out, lock the vault automatically (web/mobile only)
   useEffect(() => {
     if (!isExtension && !isAuthenticated) {
@@ -60,26 +109,7 @@ export const CryptoProvider = ({ children }) => {
     }
   }, [isAuthenticated]);
 
-  // Restore unlock state from sessionStorage on page refresh (web/mobile only)
-  useEffect(() => {
-    if (isExtension) return;
-    const restoreSession = async () => {
-      const savedKeyBase64 = sessionStorage.getItem('vaultguard_session_master_key');
-      if (savedKeyBase64 && isAuthenticated && user?.email) {
-        try {
-          const importedKey = await importKeyFromBase64(savedKeyBase64);
-          masterKeyRef.current = importedKey;
-          setIsUnlocked(true);
-        } catch (err) {
-          console.error('Failed to restore derived master key on load:', err);
-          lock();
-        }
-      }
-    };
-    restoreSession();
-  }, [isAuthenticated, user]);
-
-  const unlock = async (password, isAlreadyVerified = false) => {
+  const unlock = async (password, emailOverride = '') => {
     if (isExtension) {
       // In extension popup, unlocking is done by logging in (which calls UNLOCK_VAULT in background)
       let emailVal = user?.email;
@@ -103,13 +133,14 @@ export const CryptoProvider = ({ children }) => {
     }
 
     if (!password) return false;
-    if (!user?.email) {
+    const unlockEmail = emailOverride || user?.email || '';
+    if (!unlockEmail) {
       console.warn('Unlock requested but user email is not available.');
       return false;
     }
     try {
       // 1. Derive master key
-      const derivedKey = await deriveMasterKey(password, user.email);
+      const derivedKey = await deriveMasterKey(password, unlockEmail);
 
       // 2. Perform verification
       let isVerified = false;
@@ -118,18 +149,14 @@ export const CryptoProvider = ({ children }) => {
       if (isNative) {
         try {
           const cachedProfile = await localDb.getUserProfile();
-          const isSameUser = cachedProfile && cachedProfile.email && cachedProfile.email.toLowerCase() === user.email.toLowerCase();
+            const isSameUser = cachedProfile && cachedProfile.email && cachedProfile.email.toLowerCase() === unlockEmail.toLowerCase();
 
           if (isSameUser) {
             const cachedEntries = await localDb.getAllEntries();
             const testEntry = cachedEntries.find(e => e.encryptedData && e.iv && e.salt);
 
             if (testEntry) {
-              if (testEntry.salt === 'migrated' || testEntry.salt === 'none' || !testEntry.salt) {
-                await decryptWithKey(testEntry.encryptedData, testEntry.iv, derivedKey);
-              } else {
-                await decryptLegacy(testEntry.encryptedData, testEntry.iv, testEntry.salt, password);
-              }
+              await decryptWithKey(testEntry.encryptedData, testEntry.iv, derivedKey);
               isVerified = true;
             }
           } else {
@@ -146,32 +173,20 @@ export const CryptoProvider = ({ children }) => {
 
       // If not verified locally (e.g. no cached entries, or we are on web dashboard where IndexedDB cache doesn't exist), check with server
       if (!isVerified) {
-        if (isAlreadyVerified) {
-          isVerified = true;
-        } else {
-          try {
-            const res = await api.post('/auth/login', { email: user.email, password });
-            if (res && res.success) {
-              isVerified = true;
-            }
-          } catch (serverErr) {
-            // Server auth failed.
-            console.error('Server verification failed:', serverErr);
-            return false;
-          }
+        try {
+          const res = await loginWithOpaque(unlockEmail, password);
+          if (res && res.success) isVerified = true;
+        } catch (serverErr) {
+          console.error('OPAQUE verification failed:', serverErr);
+          return false;
         }
       }
 
       if (isVerified) {
         masterPasswordRef.current = password;
         masterKeyRef.current = derivedKey;
+        await saveTabScopedKey(password, unlockEmail);
         setIsUnlocked(true);
-        try {
-          const keyBase64 = await exportKeyToBase64(derivedKey);
-          sessionStorage.setItem('vaultguard_session_master_key', keyBase64);
-        } catch (err) {
-          console.error('Failed to save master key to sessionStorage:', err);
-        }
         return true;
       }
 
@@ -193,18 +208,27 @@ export const CryptoProvider = ({ children }) => {
     }
     masterPasswordRef.current = '';
     masterKeyRef.current = null;
+    if (!isExtension && !isNative) sessionStorage.removeItem(SESSION_MASTER_KEY);
     setIsUnlocked(false);
-    sessionStorage.removeItem('vaultguard_session_master_key');
   };
 
-  const getMasterPassword = () => {
-    if (isExtension) {
-      return '';
+  const verifyCurrentPassword = async (currentPassword) => {
+    if (masterPasswordRef.current) {
+      if (currentPassword !== masterPasswordRef.current) {
+        throw new Error('Current password does not match the unlocked vault.');
+      }
+      return;
     }
-    if (!isUnlocked || !masterPasswordRef.current) {
-      throw new Error('Vault is locked. Please unlock first.');
+
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_MASTER_KEY) || 'null');
+    if (!saved?.key || saved.email !== user?.email) {
+      throw new Error('Enter your current master password to continue.');
     }
-    return masterPasswordRef.current;
+    const candidate = await deriveMasterKey(currentPassword, user.email, { extractable: true });
+    const candidateKey = await exportKeyToBase64(candidate);
+    if (candidateKey !== saved.key) {
+      throw new Error('Current password does not match the unlocked vault.');
+    }
   };
 
   const prepareEmailRekey = async (newEmail, entries, currentPassword) => {
@@ -212,10 +236,7 @@ export const CryptoProvider = ({ children }) => {
       throw new Error('Email rekeying is handled by the extension background service.');
     }
 
-    const activePassword = getMasterPassword();
-    if (currentPassword !== activePassword) {
-      throw new Error('Current password does not match the unlocked vault.');
-    }
+    await verifyCurrentPassword(currentPassword);
 
     const nextKey = await deriveMasterKey(currentPassword, newEmail);
     const encryptedEntries = await Promise.all(entries.map(async (entry) => {
@@ -240,10 +261,12 @@ export const CryptoProvider = ({ children }) => {
     return { key: nextKey, entries: encryptedEntries };
   };
 
-  const commitEmailRekey = async (nextKey) => {
+  const commitEmailRekey = async (nextKey, nextEmail = user?.email) => {
     masterKeyRef.current = nextKey;
-    const keyBase64 = await exportKeyToBase64(nextKey);
-    sessionStorage.setItem('vaultguard_session_master_key', keyBase64);
+    if (nextEmail) {
+      const password = masterPasswordRef.current;
+      if (password) await saveTabScopedKey(password, nextEmail);
+    }
     return true;
   };
 
@@ -252,10 +275,7 @@ export const CryptoProvider = ({ children }) => {
       throw new Error('Password rekeying is handled by the extension background service.');
     }
 
-    const activePassword = getMasterPassword();
-    if (currentPassword !== activePassword) {
-      throw new Error('Current password does not match the unlocked vault.');
-    }
+    await verifyCurrentPassword(currentPassword);
 
     const nextKey = await deriveMasterKey(newPassword, user.email);
     const encryptedEntries = await Promise.all(entries.map(async (entry) => {
@@ -283,8 +303,7 @@ export const CryptoProvider = ({ children }) => {
   const commitPasswordRekey = async (nextKey, nextPassword) => {
     masterPasswordRef.current = nextPassword;
     masterKeyRef.current = nextKey;
-    const keyBase64 = await exportKeyToBase64(nextKey);
-    sessionStorage.setItem('vaultguard_session_master_key', keyBase64);
+    await saveTabScopedKey(nextPassword, user?.email);
     return true;
   };
 
@@ -311,13 +330,8 @@ export const CryptoProvider = ({ children }) => {
     };
   };
 
-  /**
-   * Helper to decrypt ciphertext using either the pre-derived key or legacy fallback.
-   * @param {string} encryptedData - Base64 ciphertext
-   * @param {string} iv - Base64 IV
-   * @param {string} salt - Base64 salt (or 'migrated' sentinel)
-   */
-  const decryptData = async (encryptedData, iv, salt) => {
+  /** Decrypt ciphertext using the current single-key vault format. */
+  const decryptData = async (encryptedData, iv) => {
     if (isExtension) {
       // In extension, data from background is already decrypted
       return encryptedData;
@@ -325,15 +339,10 @@ export const CryptoProvider = ({ children }) => {
     if (!isUnlocked) {
       throw new Error('Vault is locked. Please unlock first.');
     }
-    if (salt === 'migrated' || salt === 'none' || !salt) {
-      if (!masterKeyRef.current) {
-        throw new Error('Vault is unlocked but master key is missing from memory.');
-      }
-      return decryptWithKey(encryptedData, iv, masterKeyRef.current);
-    } else {
-      const password = getMasterPassword();
-      return decryptLegacy(encryptedData, iv, salt, password);
+    if (!masterKeyRef.current) {
+      throw new Error('Vault is unlocked but master key is missing from memory.');
     }
+    return decryptWithKey(encryptedData, iv, masterKeyRef.current);
   };
 
   return (
@@ -342,7 +351,6 @@ export const CryptoProvider = ({ children }) => {
       isUnlockStateLoading,
       unlock, 
       lock, 
-      getMasterPassword,
       prepareEmailRekey,
       commitEmailRekey,
       preparePasswordRekey,

@@ -30,7 +30,6 @@ export default function SettingsPage() {
   const {
     isUnlocked,
     decryptData,
-    getMasterPassword,
     prepareEmailRekey,
     commitEmailRekey,
     preparePasswordRekey,
@@ -99,7 +98,10 @@ export default function SettingsPage() {
       let preparedRekey = null;
 
       if (emailChanged) {
-        profilePayload.currentPassword = profileCurrentPassword;
+        if (isExtension) {
+          // The extension validates this locally before re-encrypting entries.
+          profilePayload.currentPassword = profileCurrentPassword;
+        }
 
         if (!isExtension) {
           preparedRekey = await prepareEmailRekey(
@@ -114,7 +116,7 @@ export default function SettingsPage() {
       await updateProfile(
         profilePayload,
         preparedRekey
-          ? { beforeApply: () => commitEmailRekey(preparedRekey.key) }
+          ? { beforeApply: () => commitEmailRekey(preparedRekey.key, nextEmail) }
           : undefined
       );
 
@@ -187,9 +189,6 @@ export default function SettingsPage() {
 
       if (isNative) {
         await mobileAuth.saveSecureCredentials(user.email, newPassword);
-        if (localStorage.getItem('vaultguard_mobile_keep_unlocked') === 'true') {
-          await mobileAuth.saveAutoUnlockPassword(newPassword);
-        }
       }
 
       if (!isExtension) await fetchEntries();
@@ -262,33 +261,6 @@ export default function SettingsPage() {
   const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
     return localStorage.getItem('vaultguard_lock_timeout') || '5';
   });
-
-  const [mobileKeepUnlocked, setMobileKeepUnlocked] = useState(() => {
-    return localStorage.getItem('vaultguard_mobile_keep_unlocked') === 'true';
-  });
-
-  const handleToggleKeepUnlocked = async (checked) => {
-    if (!isNative) return;
-    if (checked) {
-      try {
-        const password = getMasterPassword();
-        if (password) {
-          await mobileAuth.saveAutoUnlockPassword(password);
-          localStorage.setItem('vaultguard_mobile_keep_unlocked', 'true');
-          setMobileKeepUnlocked(true);
-        }
-      } catch (err) {
-        console.error('Failed to enable auto-unlock:', err);
-      }
-    } else {
-      await mobileAuth.clearAutoUnlockPassword();
-      localStorage.removeItem('vaultguard_mobile_keep_unlocked');
-      setMobileKeepUnlocked(false);
-    }
-  };
-
-
-
 
   const [importStatus, setImportStatus] = useState('');
   const [importError, setImportError] = useState('');
@@ -846,23 +818,9 @@ export default function SettingsPage() {
             <h3 className="text-sm font-bold text-text-primary uppercase tracking-wider">Mobile Security Preferences</h3>
           </div>
 
-          <div className="space-y-4">
-            {/* Keep Unlocked Toggle */}
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-0.5">
-                <label className="block text-xs font-semibold text-text-primary">Keep Unlocked (Remember Password)</label>
-                <p className="text-[10px] text-text-secondary/60">
-                  Stores your master password in local database storage to automatically decrypt the vault on launch. Use with caution.
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                checked={mobileKeepUnlocked}
-                onChange={(e) => handleToggleKeepUnlocked(e.target.checked)}
-                className="w-9 h-5 rounded-full bg-bg-dark border border-border-dark checked:bg-accent-teal text-accent-teal focus:ring-accent-teal/30 cursor-pointer"
-              />
-            </div>
-          </div>
+          <p className="text-xs text-text-secondary">
+            Vault unlock requires the master password or authentication-bound device biometrics.
+          </p>
         </div>
       )}
 

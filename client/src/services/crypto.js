@@ -44,7 +44,7 @@ const base64ToBuffer = (base64) => {
  * @param {ArrayBuffer} salt - 16-byte random salt
  * @returns {Promise<CryptoKey>} - Derived CryptoKey
  */
-export const deriveKey = async (password, salt) => {
+export const deriveKey = async (password, salt, { extractable = false } = {}) => {
   const passwordBuffer = stringToBuffer(password);
   
   // Import the raw password as a key-deriving-key
@@ -66,7 +66,7 @@ export const deriveKey = async (password, salt) => {
     },
     baseKey,
     { name: 'AES-GCM', length: 256 },
-    true, // Key is exportable so we can save the derived key in sessionStorage
+    extractable,
     ['encrypt', 'decrypt']
   );
 };
@@ -78,12 +78,12 @@ export const deriveKey = async (password, salt) => {
  * @param {string} email - The user's email
  * @returns {Promise<CryptoKey>} - Master key
  */
-export const deriveMasterKey = async (password, email) => {
+export const deriveMasterKey = async (password, email, options = {}) => {
   if (!password || !email) throw new Error('Password and email are required to derive key.');
   const emailBuffer = stringToBuffer(email.toLowerCase().trim());
   const hashBuffer = await window.crypto.subtle.digest('SHA-256', emailBuffer);
   const salt = hashBuffer.slice(0, 16); // First 16 bytes of SHA-256 hash
-  return deriveKey(password, salt);
+  return deriveKey(password, salt, options);
 };
 
 /**
@@ -134,40 +134,6 @@ export const decryptWithKey = async (encryptedDataBase64, ivBase64, key) => {
   );
   
   return bufferToString(decryptedBuffer);
-};
-
-/**
- * Legacy decryption handler: derives key per-entry using stored salt.
- * Used for unmigrated database entries.
- * @param {string} encryptedDataBase64 - Base64 ciphertext
- * @param {string} ivBase64 - Base64 IV
- * @param {string} saltBase64 - Base64 salt
- * @param {string} password - Master password
- * @returns {Promise<string>} - Plaintext string
- */
-export const decryptLegacy = async (encryptedDataBase64, ivBase64, saltBase64, password) => {
-  if (!encryptedDataBase64) return '';
-  
-  try {
-    const ciphertext = base64ToBuffer(encryptedDataBase64);
-    const iv = base64ToBuffer(ivBase64);
-    const salt = base64ToBuffer(saltBase64);
-    
-    const key = await deriveKey(password, salt);
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv,
-      },
-      key,
-      ciphertext
-    );
-    
-    return bufferToString(decryptedBuffer);
-  } catch (error) {
-    console.error('Legacy decryption failed:', error);
-    throw new Error('Failed to decrypt data using legacy mode.');
-  }
 };
 
 /**

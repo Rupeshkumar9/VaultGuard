@@ -166,6 +166,7 @@ function setupInputListeners(pair) {
   inputs.forEach(input => {
     // Show icon on focus or hover
     input.addEventListener('focus', async () => {
+      chrome.runtime.sendMessage({ action: 'SET_FOCUSED_FRAME' }).catch(() => {});
       await fetchMatchingLogins();
       repositionOverlays();
       showOverlayIcon(input, pair);
@@ -664,36 +665,48 @@ async function init() {
 // ──── Autofill Handler from Extension Popup ────
 function autofillCredentials(username, password) {
   scanForInputs();
-  
-  if (detectedInputs.length === 0) {
-    const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
-    const emailOrTextInputs = Array.from(document.querySelectorAll('input')).filter(input => {
-      const type = (input.type || '').toLowerCase();
-      return type === 'email' || type === 'text';
-    });
-    
-    if (passwordInputs.length > 0) {
-      const passInput = passwordInputs[0];
-      const usernameInput = emailOrTextInputs[0] || null;
-      detectedInputs.push({ password: passInput, username: usernameInput });
+
+  const isVisible = (input) => {
+    if (!input || !input.isConnected || input.disabled || input.readOnly) return false;
+    const style = window.getComputedStyle(input);
+    const rect = input.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden' &&
+      rect.width > 0 && rect.height > 0;
+  };
+
+  const active = document.activeElement;
+  let pair = detectedInputs.find(candidate =>
+    candidate.username === active || candidate.password === active
+  );
+
+  if (!pair) {
+    pair = detectedInputs.find(candidate => isVisible(candidate.password) &&
+      (!candidate.username || isVisible(candidate.username)));
+  }
+
+  if (!pair) {
+    const scope = active?.form || document;
+    const passwordInput = Array.from(scope.querySelectorAll('input[type="password"]'))
+      .find(isVisible);
+    if (passwordInput) {
+      const candidates = Array.from(scope.querySelectorAll('input'))
+        .filter(input => ['text', 'email', 'tel'].includes((input.type || '').toLowerCase()))
+        .filter(isVisible);
+      pair = { password: passwordInput, username: candidates[0] || null };
     }
   }
 
-  if (detectedInputs.length > 0) {
-    let filled = false;
-    detectedInputs.forEach(pair => {
-      if (pair.username && username) {
-        setInputValue(pair.username, username);
-        filled = true;
-      }
-      if (pair.password && password) {
-        setInputValue(pair.password, password);
-        filled = true;
-      }
-    });
-    return filled;
+  if (!pair) return false;
+  let filled = false;
+  if (pair.username && username && isVisible(pair.username)) {
+    setInputValue(pair.username, username);
+    filled = true;
   }
-  return false;
+  if (pair.password && password && isVisible(pair.password)) {
+    setInputValue(pair.password, password);
+    filled = true;
+  }
+  return filled;
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Star, Copy, Check, ExternalLink, Shield, RefreshCw, Info, MoreHorizontal } from 'lucide-react';
-import { getFaviconUrl, getDomain, formatRelativeTime } from '../../utils/helpers';
+import { getFaviconUrl, getDomain, getSafeWebsiteUrl, formatRelativeTime } from '../../utils/helpers';
 import { useClipboard } from '../../hooks/useClipboard';
 import { useVault } from '../../contexts/VaultContext';
 import { isExtension } from '../../utils/platform';
@@ -20,6 +20,7 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect,
 
   const domain = entry.website ? getDomain(entry.website) : '';
   const favicon = domain ? getFaviconUrl(entry.website) : null;
+  const websiteUrl = getSafeWebsiteUrl(entry.website);
 
   const handleCopyUsername = (e) => {
     e.stopPropagation();
@@ -254,9 +255,9 @@ export default function VaultCard({ entry, onSelect, isSelected, onToggleSelect,
               <h4 className="font-bold text-text-primary text-sm line-clamp-1 group-hover:text-accent-teal transition-colors">
                 {entry.title}
               </h4>
-              {domain ? (
+              {domain && websiteUrl ? (
                 <a 
-                  href={entry.website.startsWith('http') ? entry.website : `https://${entry.website}`}
+                  href={websiteUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={handleLinkClick}

@@ -6,6 +6,13 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 await build({
   configFile: false,
+  resolve: {
+    // The worker entry lives outside client/, so Vite does not search the
+    // client dependency tree for package imports by default.
+    alias: {
+      '@serenity-kit/opaque': path.resolve(currentDir, 'node_modules/@serenity-kit/opaque'),
+    },
+  },
   build: {
     emptyOutDir: true,
     outDir: path.resolve(currentDir, '../extension/worker-dist'),

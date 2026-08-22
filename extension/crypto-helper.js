@@ -140,38 +140,3 @@ export const decryptWithKey = async (encryptedDataBase64, ivBase64, key) => {
   
   return bufferToString(decryptedBuffer);
 };
-
-/**
- * Legacy decryption handler: derives key per-entry using stored salt.
- * Used for unmigrated database entries.
- * @param {string} encryptedDataBase64 - Base64 ciphertext
- * @param {string} ivBase64 - Base64 IV
- * @param {string} saltBase64 - Base64 salt
- * @param {string} password - Master password
- * @returns {Promise<string>} - Plaintext string
- */
-export const decryptLegacy = async (encryptedDataBase64, ivBase64, saltBase64, password) => {
-  if (!encryptedDataBase64) return '';
-  const cryptoObj = typeof self !== 'undefined' ? self.crypto : window.crypto;
-  
-  try {
-    const ciphertext = base64ToBuffer(encryptedDataBase64);
-    const iv = base64ToBuffer(ivBase64);
-    const salt = base64ToBuffer(saltBase64);
-    
-    const key = await deriveKey(password, salt);
-    const decryptedBuffer = await cryptoObj.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv,
-      },
-      key,
-      ciphertext
-    );
-    
-    return bufferToString(decryptedBuffer);
-  } catch (error) {
-    console.error('Legacy decryption failed:', error);
-    throw new Error('Failed to decrypt data using legacy mode.');
-  }
-};
