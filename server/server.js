@@ -28,9 +28,9 @@ app.set('trust proxy', 1);
 // Set security HTTP headers
 app.use(helmet());
 
-// Enable CORS only for explicitly configured application origins. Extension IDs
-// are deployment-specific, so they must be listed in EXTENSION_ORIGINS rather
-// than allowing every installed extension to make credentialed requests.
+// Keep website origins explicitly configured, but recognize browser-extension
+// origins automatically. Extension IDs can differ for manually loaded copies,
+// so requiring every user to add an ID to the server environment is not viable.
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost',
@@ -46,12 +46,31 @@ if (process.env.EXTENSION_ORIGINS) {
     .forEach(origin => allowedOrigins.push(origin));
 }
 
+function isBrowserExtensionOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    const isSupportedProtocol = parsed.protocol === 'chrome-extension:' || parsed.protocol === 'moz-extension:';
+
+    // Extension origins have an opaque host identifier and no credentials,
+    // port, or path. This intentionally does not allow arbitrary web origins.
+    return isSupportedProtocol &&
+      Boolean(parsed.hostname) &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.port &&
+      (parsed.pathname === '/' || parsed.pathname === '');
+  } catch {
+    return false;
+  }
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
       // Requests without an Origin are kept for native clients and CLI health
-      // checks. Browser origins must be explicitly allowlisted.
-      if (!origin || allowedOrigins.includes(origin)) {
+      // checks. Website origins remain explicitly allowlisted, while browser
+      // extensions are authorized by their restricted extension protocols.
+      if (!origin || allowedOrigins.includes(origin) || isBrowserExtensionOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));

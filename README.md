@@ -88,8 +88,8 @@ Follow these steps to run VaultGuard locally on your machine.
    ```
 3. Create a `.env` file inside `/server` with the following configuration:
    ```env
-   # Server Port
-   PORT=your_port_no
+   # Local server port (Render supplies PORT automatically in production)
+   PORT=5000
    NODE_ENV=development
 
    # MongoDB Database Connection
@@ -97,8 +97,8 @@ Follow these steps to run VaultGuard locally on your machine.
    # For MongoDB Atlas, use your full connection string:
    DB_USER=your_database_username
    DB_PASSWORD=your_database_password
-   # Alternatively, specify direct URI:
-   # MONGO_URI=mongodb+srv://...
+   # Alternatively, specify a direct URI:
+   # MONGODB_URI=mongodb+srv://...
 
    # JWT Secret - Change this to a strong random string
    JWT_SECRET=your_jwt_signing_secret_here
@@ -108,8 +108,9 @@ Follow these steps to run VaultGuard locally on your machine.
    # Example: node -e "const o=require('@serenity-kit/opaque'); o.ready.then(()=>console.log(o.server.createSetup()))"
    OPAQUE_SERVER_SETUP=your_stable_opaque_server_setup_here
 
-   # CORS - Allowed Frontend origin URL
-   CLIENT_URL= your_localHost_address
+   # CORS - Allowed frontend origin URL
+   CLIENT_URL=http://localhost:5173
+   # EXTENSION_ORIGINS is optional; browser-extension origins are recognized automatically.
    ```
 4. Start the development server:
    ```bash
