@@ -135,7 +135,7 @@ export default function LoginPage() {
                 onChange={(e) => setRememberPassword(e.target.checked)}
                 className="mt-0.5 rounded border-border-dark bg-bg-dark text-accent-teal"
               />
-              <span>Keep the vault unlocked after inactivity and browser restarts. This stores an encrypted copy of the master password locally.</span>
+              <span>Keep vault unlocked</span>
             </label>
 
             {error && (
@@ -240,7 +240,7 @@ export default function LoginPage() {
                 className="w-4 h-4 rounded bg-bg-dark border border-border-dark text-accent-teal focus:ring-accent-teal/50 cursor-pointer"
               />
               <label htmlFor="rememberPassword" className="text-xs text-text-secondary select-none cursor-pointer">
-                Remember Master Password
+                Keep vault unlocked
               </label>
             </div>
           )}

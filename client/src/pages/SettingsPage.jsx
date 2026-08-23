@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const [profileEmail, setProfileEmail] = useState('');
   const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
   const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Master password change state
@@ -51,6 +52,7 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Danger Zone / Account Deletion state
@@ -64,6 +66,7 @@ export default function SettingsPage() {
     setProfileEmail(user?.email || '');
     setProfileCurrentPassword('');
     setProfileError('');
+    setProfileSuccess('');
     setIsProfileModalOpen(true);
   };
 
@@ -74,6 +77,7 @@ export default function SettingsPage() {
   const handleSaveProfile = async (event) => {
     event.preventDefault();
     setProfileError('');
+    setProfileSuccess('');
 
     const nextEmail = profileEmail.trim().toLowerCase();
     const currentEmail = (user?.email || '').toLowerCase();
@@ -128,8 +132,10 @@ export default function SettingsPage() {
       if (!isExtension) await fetchEntries();
       setIsProfileModalOpen(false);
       setProfileCurrentPassword('');
+      setProfileSuccess(emailChanged ? 'Email and profile updated successfully.' : 'Profile updated successfully.');
     } catch (err) {
       console.error('Profile update failed:', err);
+      setProfileSuccess('');
       setProfileError(err.message || 'Failed to update profile.');
     } finally {
       setIsSavingProfile(false);
@@ -141,6 +147,7 @@ export default function SettingsPage() {
     setNewPassword('');
     setConfirmPassword('');
     setPasswordError('');
+    setPasswordSuccess('');
     setIsPasswordModalOpen(true);
   };
 
@@ -151,6 +158,7 @@ export default function SettingsPage() {
   const handleChangePassword = async (event) => {
     event.preventDefault();
     setPasswordError('');
+    setPasswordSuccess('');
 
     if (!currentPassword) {
       setPasswordError('Enter your current master password.');
@@ -196,8 +204,10 @@ export default function SettingsPage() {
       setNewPassword('');
       setConfirmPassword('');
       setIsPasswordModalOpen(false);
+      setPasswordSuccess('Master password changed successfully.');
     } catch (err) {
       console.error('Master password change failed:', err);
+      setPasswordSuccess('');
       setPasswordError(err.message || 'Failed to change master password.');
     } finally {
       setIsChangingPassword(false);
@@ -748,6 +758,13 @@ export default function SettingsPage() {
           Manage your security preferences, session timeouts, and data backups.
         </p>
       </div>
+
+      {(profileSuccess || passwordSuccess) && (
+        <div className="flex items-center gap-2 rounded-xl border border-accent-teal/20 bg-accent-teal/10 p-3 text-xs font-semibold text-accent-teal">
+          <Check className="h-4 w-4 shrink-0" />
+          <span>{profileSuccess || passwordSuccess}</span>
+        </div>
+      )}
 
       {/* Account Info */}
       <div className="p-6 rounded-2xl bg-surface-dark border border-border-dark space-y-4">

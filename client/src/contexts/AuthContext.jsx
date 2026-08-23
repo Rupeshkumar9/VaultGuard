@@ -261,66 +261,56 @@ export const AuthProvider = ({ children }) => {
   };
 
   const updateProfile = async (profile, { beforeApply } = {}) => {
-    setIsLoading(true);
-    try {
-      if (isExtension) {
-        const response = await chrome.runtime.sendMessage({
-          action: 'UPDATE_PROFILE',
-          ...profile,
-        });
-        if (!response?.success) {
-          throw new Error(response?.error || 'Failed to update profile.');
-        }
-        cacheUser(response.user);
-        setUser(response.user);
-        setIsAuthenticated(true);
-        return response;
+    if (isExtension) {
+      const response = await chrome.runtime.sendMessage({
+        action: 'UPDATE_PROFILE',
+        ...profile,
+      });
+      if (!response?.success) {
+        throw new Error(response?.error || 'Failed to update profile.');
       }
-
-      const safeProfile = { ...profile };
-      delete safeProfile.currentPassword;
-      const response = await api.patch('/auth/profile', safeProfile);
-      if (response.success && response.user) {
-        if (beforeApply) await beforeApply(response);
-        setToken(response.token);
-        cacheUser(response.user);
-        setUser(response.user);
-        setIsAuthenticated(true);
-        return response;
-      }
-
-      throw new Error(response.message || 'Failed to update profile.');
-    } finally {
-      setIsLoading(false);
+      cacheUser(response.user);
+      setUser(response.user);
+      setIsAuthenticated(true);
+      return response;
     }
+
+    const safeProfile = { ...profile };
+    delete safeProfile.currentPassword;
+    const response = await api.patch('/auth/profile', safeProfile);
+    if (response.success && response.user) {
+      if (beforeApply) await beforeApply(response);
+      setToken(response.token);
+      cacheUser(response.user);
+      setUser(response.user);
+      setIsAuthenticated(true);
+      return response;
+    }
+
+    throw new Error(response.message || 'Failed to update profile.');
   };
 
   const changePassword = async ({ newPassword, vaultEntries = [] }, { beforeApply } = {}) => {
-    setIsLoading(true);
-    try {
-      if (isExtension) {
-        throw new Error('Changing the master password is available from the web dashboard or mobile app.');
-      }
-
-      const opaquePassword = await createOpaqueRegistrationRecord(newPassword);
-      const response = await api.patch('/auth/password', {
-        opaqueChallengeId: opaquePassword.challengeId,
-        opaqueRegistrationRecord: opaquePassword.registrationRecord,
-        vaultEntries,
-      });
-      if (response.success && response.user) {
-        if (beforeApply) await beforeApply(response);
-        setToken(response.token);
-        cacheUser(response.user);
-        setUser(response.user);
-        setIsAuthenticated(true);
-        return response;
-      }
-
-      throw new Error(response.message || 'Failed to change master password.');
-    } finally {
-      setIsLoading(false);
+    if (isExtension) {
+      throw new Error('Changing the master password is available from the web dashboard or mobile app.');
     }
+
+    const opaquePassword = await createOpaqueRegistrationRecord(newPassword);
+    const response = await api.patch('/auth/password', {
+      opaqueChallengeId: opaquePassword.challengeId,
+      opaqueRegistrationRecord: opaquePassword.registrationRecord,
+      vaultEntries,
+    });
+    if (response.success && response.user) {
+      if (beforeApply) await beforeApply(response);
+      setToken(response.token);
+      cacheUser(response.user);
+      setUser(response.user);
+      setIsAuthenticated(true);
+      return response;
+    }
+
+    throw new Error(response.message || 'Failed to change master password.');
   };
 
   const logout = async () => {

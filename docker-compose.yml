@@ -1,0 +1,31 @@
+services:
+  mongodb:
+    build:
+      context: ./docker/mongodb
+    image: vaultguard-mongodb-local
+    container_name: vaultguard-mongodb
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongodb-keyfile"]
+    environment:
+      MONGO_INITDB_DATABASE: vaultgaurd
+      MONGO_INITDB_ROOT_USERNAME: vaultguard_local
+      MONGO_INITDB_ROOT_PASSWORD: vaultguard_local_dev_password
+    ports:
+      - "27017:27017"
+    volumes:
+      - vaultguard_mongodb_data:/data/db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --username "$${MONGO_INITDB_ROOT_USERNAME}"
+          --password "$${MONGO_INITDB_ROOT_PASSWORD}"
+          --authenticationDatabase admin
+          --eval "try { quit(rs.status().members.some(member => member.stateStr === 'PRIMARY') ? 0 : 1) } catch (error) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}); quit(1) }"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  vaultguard_mongodb_data:

@@ -93,12 +93,17 @@ Follow these steps to run VaultGuard locally on your machine.
    NODE_ENV=development
 
    # MongoDB Database Connection
-   # For local MongoDB: mongodb://localhost:27017/vaultguard
-   # For MongoDB Atlas, use your full connection string:
-   DB_USER=your_database_username
-   DB_PASSWORD=your_database_password
-   # Alternatively, specify a direct URI:
-   # MONGODB_URI=mongodb+srv://...
+   # Use the complete URI from MongoDB Atlas or your local MongoDB server.
+   # Atlas example:
+   MONGODB_URI=mongodb+srv://<db_username>:<db_password>@cluster0.5gxxrru.mongodb.net/vaultguard?retryWrites=true&w=majority&appName=Cluster0
+   # Local Docker MongoDB example (see docker-compose.yml):
+   # MONGODB_URI=mongodb://vaultguard_local:vaultguard_local_dev_password@localhost:27017/vaultgaurd?authSource=admin&replicaSet=rs0
+   # If the username or password contains characters such as @, :, /, or #,
+   # URL-encode those values before placing them in the URI.
+
+   # Start the local MongoDB replica set from the repository root:
+   # docker compose up -d --build
+   # The existing Docker volume is preserved when the container is recreated.
 
    # JWT Secret - Change this to a strong random string
    JWT_SECRET=your_jwt_signing_secret_here

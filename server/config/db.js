@@ -1,19 +1,22 @@
 const mongoose = require('mongoose');
 
+const getMongoUri = () => {
+  const uri = process.env.MONGODB_URI?.trim();
+
+  if (!uri) {
+    throw new Error('MONGODB_URI is missing. Add the full MongoDB connection URI to server/.env');
+  }
+
+  if (!/^mongodb(?:\+srv)?:\/\//i.test(uri)) {
+    throw new Error('MONGODB_URI must start with mongodb:// or mongodb+srv://');
+  }
+
+  return uri;
+};
+
 const connectDB = async () => {
   try {
-    let uri = process.env.MONGODB_URI;
-
-    if (!uri && process.env.DB_USER && process.env.DB_PASSWORD) {
-      const user = encodeURIComponent(process.env.DB_USER);
-      const password = encodeURIComponent(process.env.DB_PASSWORD);
-      uri = `mongodb+srv://${user}:${password}@cluster0.5gxxrru.mongodb.net/vaultguard?retryWrites=true&w=majority&appName=Cluster0`;
-    }
-
-    if (!uri) {
-      throw new Error('Please define MONGODB_URI or DB_USER/DB_PASSWORD in your .env file');
-    }
-
+    const uri = getMongoUri();
     const conn = await mongoose.connect(uri);
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {

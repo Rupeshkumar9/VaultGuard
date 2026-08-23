@@ -13,6 +13,23 @@ let lastTypedUsername = '';
 let lastTypedPassword = '';
 let lastTypedPasswordInput = null;
 let lastTypedUsernameInput = null;
+let pendingSubmitCandidate = null;
+let routeObserver = null;
+let contentScriptInitialized = false;
+let metadataRetryTimer = null;
+let metadataRetryCount = 0;
+
+function isVaultGuardLoginPage() {
+  return window.location.pathname.includes('/login') ||
+    window.location.pathname.includes('/register') ||
+    window.location.hash.includes('/login') ||
+    window.location.hash.includes('/register');
+}
+
+function isContentScriptAllowedOnCurrentPage() {
+  const isVaultGuardApp = document.querySelector('meta[name="vaultguard-app"]');
+  return !(isVaultGuardApp && !isVaultGuardLoginPage());
+}
 
 // ──── Shadow DOM Isolation ────
 function initShadowDom() {
@@ -141,13 +158,7 @@ function trackDetectedPair(pair) {
 }
 
 function scanForInputs() {
-  const isVaultGuardApp = document.querySelector('meta[name="vaultguard-app"]');
-  const isLoginPage = window.location.pathname.includes('/login') || 
-                       window.location.pathname.includes('/register') || 
-                       window.location.hash.includes('/login') || 
-                       window.location.hash.includes('/register');
-
-  if (isVaultGuardApp && !isLoginPage) {
+  if (!isContentScriptAllowedOnCurrentPage()) {
     cleanupAllOverlays();
     return;
   }
@@ -459,10 +470,10 @@ function showAutoSaveToast(message) {
 }
 
 async function queueAutoSaveCandidate(username, password, pair) {
-  if (!pair || !isCredentialContext(pair)) return;
+  if (!pair || !isCredentialContext(pair)) return null;
   const cleanUsername = (username || '').trim();
   const cleanPassword = password || '';
-  if (!cleanUsername && !cleanPassword) return;
+  if (!cleanUsername && !cleanPassword) return null;
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'QUEUE_PENDING_CREDENTIAL',
@@ -475,13 +486,18 @@ async function queueAutoSaveCandidate(username, password, pair) {
     if (response?.success && !response.duplicate) {
       showAutoSaveToast(`New credential saved — ${response.pendingCount || 1} pending`);
     }
+    return response;
   } catch (err) {
     console.warn('VaultGuard could not queue local autosave candidate:', err);
+    return null;
   }
 }
 
 async function savePendingSubmit(username, password, pair) {
-  await queueAutoSaveCandidate(username, password, pair);
+  if (!pair || !isCredentialContext(pair)) return;
+  pendingSubmitCandidate = { username, password, pair };
+  const response = await queueAutoSaveCandidate(username, password, pair);
+  if (response?.success) pendingSubmitCandidate = null;
 }
 
 async function checkPendingCredentialOnLoad() {
@@ -618,31 +634,44 @@ function showSaveBanner(username, password, existingLogin) {
 }
 
 // ──── Main Fetch Routine ────
-async function fetchMatchingLogins() {
+function scheduleMetadataRetry() {
+  if (metadataRetryTimer || metadataRetryCount >= 8) return;
+
+  const delays = [150, 300, 600, 1200, 2400, 4800, 8000, 12000];
+  const delay = delays[metadataRetryCount++];
+  metadataRetryTimer = setTimeout(async () => {
+    metadataRetryTimer = null;
+    const loaded = await fetchMatchingLogins();
+    if (loaded) scanForInputs();
+  }, delay);
+}
+
+async function fetchMatchingLogins({ retry = true } = {}) {
   try {
     const res = await chrome.runtime.sendMessage({
       action: 'GET_MATCHING_METADATA'
     });
-    if (res.success) {
+    if (res?.success) {
       matchingLogins = res.credentials || [];
+      metadataRetryCount = 0;
+      return true;
     }
+    matchingLogins = [];
+    if (retry) scheduleMetadataRetry();
   } catch (err) {
     matchingLogins = [];
+    if (retry) scheduleMetadataRetry();
   }
+  return false;
 }
 
 // ──── Initial Boot and Listeners ────
 async function init() {
-  // Do not run content script inside the VaultGuard application itself, except on login/register pages
-  const isVaultGuardApp = document.querySelector('meta[name="vaultguard-app"]');
-  const isLoginPage = window.location.pathname.includes('/login') || 
-                       window.location.pathname.includes('/register') || 
-                       window.location.hash.includes('/login') || 
-                       window.location.hash.includes('/register');
-
-  if (isVaultGuardApp && !isLoginPage) {
-    console.log('VaultGuard extension content script disabled on this app page.');
-    return;
+  if (contentScriptInitialized || !isContentScriptAllowedOnCurrentPage()) return;
+  contentScriptInitialized = true;
+  if (routeObserver) {
+    routeObserver.disconnect();
+    routeObserver = null;
   }
 
   // Check if there is a pending credential from a previous page redirect
@@ -662,6 +691,7 @@ async function init() {
 
   // Monitor form submissions
   window.addEventListener('submit', (e) => {
+    if (!isContentScriptAllowedOnCurrentPage()) return;
     detectedInputs.filter(pair => {
       const fieldForm = pair.password?.form || pair.username?.form;
       return !fieldForm || fieldForm === e.target;
@@ -674,6 +704,7 @@ async function init() {
 
   // Intercept button clicks that act as submit triggers
   document.addEventListener('click', (e) => {
+    if (!isContentScriptAllowedOnCurrentPage()) return;
     const btn = e.target.closest('button, input[type="submit"], input[type="button"], [role="button"], [class*="btn"], [class*="button"]');
     if (btn) {
       const text = (btn.innerText || btn.value || '').toLowerCase();
@@ -691,6 +722,33 @@ async function init() {
       }
     }
   }, true);
+}
+
+function handleRouteChange() {
+  if (!isContentScriptAllowedOnCurrentPage()) {
+    cleanupAllOverlays();
+    return;
+  }
+
+  if (!contentScriptInitialized) {
+    void init();
+    return;
+  }
+
+  void fetchMatchingLogins().then(() => scanForInputs());
+}
+
+function watchForLoginRoute() {
+  if (routeObserver) return;
+
+  window.addEventListener('popstate', handleRouteChange);
+  window.addEventListener('hashchange', handleRouteChange);
+  routeObserver = new MutationObserver(() => {
+    if (isContentScriptAllowedOnCurrentPage()) {
+      void init();
+    }
+  });
+  routeObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
 // ──── Autofill Handler from Extension Popup ────
@@ -741,6 +799,32 @@ function autofillCredentials(username, password) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'VAULT_SESSION_READY') {
+    if (isContentScriptAllowedOnCurrentPage()) {
+      void (async () => {
+        await fetchMatchingLogins();
+        scanForInputs();
+
+        if (pendingSubmitCandidate) {
+          const candidate = pendingSubmitCandidate;
+          const response = await queueAutoSaveCandidate(
+            candidate.username,
+            candidate.password,
+            candidate.pair
+          );
+          if (response?.success) pendingSubmitCandidate = null;
+        }
+      })();
+    }
+    return false;
+  }
+
+  if (request.action === 'VAULT_LOCKED') {
+    matchingLogins = [];
+    cleanupAllOverlays();
+    return false;
+  }
+
   if (request.action === 'AUTOFILL_CREDENTIALS') {
     const username = typeof request.username === 'string' ? request.username.slice(0, 2048) : '';
     const password = typeof request.password === 'string' ? request.password.slice(0, 10000) : '';
@@ -752,4 +836,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Boot content script
-init();
+if (isContentScriptAllowedOnCurrentPage()) {
+  void init();
+} else {
+  watchForLoginRoute();
+}

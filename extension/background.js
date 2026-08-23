@@ -132,6 +132,7 @@ async function restoreSessionOnStartup() {
       console.log('🔓 Extension session restored from local storage.');
       await scheduleAutoLockAlarm();
       chrome.runtime.sendMessage({ action: 'VAULT_RESTORED' }).catch(() => {});
+      await notifyContentScripts({ action: 'VAULT_SESSION_READY' });
     }
   } catch (err) {
     console.error('Session restoration failed:', err);
@@ -234,6 +235,7 @@ async function lockVault({ forgetPersistent = false } = {}) {
   
   // Notify popup and content scripts if any are active
   chrome.runtime.sendMessage({ action: 'VAULT_LOCKED' }).catch(() => {});
+  await notifyContentScripts({ action: 'VAULT_LOCKED' });
 }
 
 async function scheduleAutoLockAlarm() {
@@ -250,6 +252,22 @@ async function resetAutoLockTimer() {
   if (session.masterPassword) {
     await chrome.storage.session.set({ lastActive: Date.now() });
     await scheduleAutoLockAlarm();
+  }
+}
+
+// A service worker may be suspended between page events. Sending a message
+// from a content script wakes it, but content scripts also need an explicit
+// notification when the vault becomes available after their initial request.
+async function notifyContentScripts(message) {
+  try {
+    const tabs = await chrome.tabs.query({});
+    await Promise.all(
+      tabs
+        .filter((tab) => tab?.id != null)
+        .map((tab) => chrome.tabs.sendMessage(tab.id, message).catch(() => null))
+    );
+  } catch (error) {
+    console.debug('Could not notify content scripts:', error);
   }
 }
 
@@ -275,6 +293,7 @@ async function syncVault() {
       await localDb.saveEntries(response.data);
       // Notify popup that sync completed
       chrome.runtime.sendMessage({ action: 'VAULT_SYNCED', count: response.data.length }).catch(() => {});
+      await notifyContentScripts({ action: 'VAULT_SESSION_READY' });
       return { success: true, count: response.data.length };
     } else {
       throw new Error(response.message || 'Failed to fetch vault ciphers.');
