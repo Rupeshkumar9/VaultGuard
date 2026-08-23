@@ -47,17 +47,18 @@ function createZip(sourceManifest, outputPath) {
     fs.copyFileSync(selectedManifest, chromeManifest);
 
     if (process.platform === 'win32') {
-      // Use .NET's ZIP implementation for Explorer-compatible archives. This
-      // avoids depending on the optional Microsoft.PowerShell.Archive module.
+      // Use PowerShell's archive cmdlet so ZIP entries use the required
+      // forward-slash separators. .NET CreateFromDirectory writes Windows
+      // backslashes into entry names, which Firefox does not resolve as paths.
       const quote = (value) => `'${value.replaceAll("'", "''")}'`;
       const command = [
-        'Add-Type -AssemblyName System.IO.Compression.FileSystem',
+        'Import-Module Microsoft.PowerShell.Archive -ErrorAction Stop',
         `$output = ${quote(outputPath)}`,
-        `if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Force }`,
-        `[System.IO.Compression.ZipFile]::CreateFromDirectory(${quote(stagingDir)}, $output, [System.IO.Compression.CompressionLevel]::Optimal, $false)`,
+        `$source = ${quote(path.join(stagingDir, '*'))}`,
+        'Compress-Archive -Path $source -DestinationPath $output -CompressionLevel Optimal -Force',
       ].join('; ');
 
-      execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
+      execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
         stdio: 'inherit',
       });
     } else {

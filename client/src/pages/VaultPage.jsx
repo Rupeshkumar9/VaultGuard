@@ -1,7 +1,7 @@
 /* global chrome */
 
 import { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw, Lock, Settings, Search } from 'lucide-react';
+import { Shield, Inbox, Plus, Trash2, ArrowUpDown, Calendar, Folder, Edit3, RefreshCw, Lock, Settings, Search } from 'lucide-react';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
 import ServerStatus from '../components/layout/ServerStatus';
@@ -10,6 +10,7 @@ import VaultDetail from '../components/vault/VaultDetail';
 import EntryForm from '../components/vault/EntryForm';
 import BulkEntryForm from '../components/vault/BulkEntryForm';
 import PasswordGenerator from '../components/generator/PasswordGenerator';
+import AutoSaveInbox from '../components/vault/AutoSaveInbox';
 import ConfirmationModal from '../components/common/ConfirmationModal';
 import ProcessingOverlay from '../components/common/ProcessingOverlay';
 import SettingsPage from './SettingsPage';
@@ -54,7 +55,7 @@ export default function VaultPage() {
   useAutoLock();
   
   // View states
-  const [currentView, setCurrentView] = useState('vault'); // 'vault' | 'generator' | 'settings'
+  const [currentView, setCurrentView] = useState('vault'); // 'vault' | 'inbox' | 'generator' | 'settings'
   const [activeCategory, setActiveCategory] = useState('All');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [showTrashOnly, setShowTrashOnly] = useState(false);
@@ -375,7 +376,7 @@ export default function VaultPage() {
     setCurrentView('vault');
   };
 
-  if (isExtension || isAutofillMode) {
+  if (isExtension || isNative || isAutofillMode) {
     return (
       <div className="flex flex-col h-screen w-full bg-bg-dark text-text-primary overflow-hidden font-sans select-none" style={isAutofillMode ? { width: '100%', height: '100%' } : { width: '380px', height: '600px' }}>
         {/* Header */}
@@ -498,12 +499,13 @@ export default function VaultPage() {
           )}
 
           {currentView === 'generator' && <PasswordGenerator />}
+          {currentView === 'inbox' && <AutoSaveInbox />}
           {currentView === 'settings' && <SettingsPage />}
         </div>
 
         {/* Bottom Tab Bar */}
         <nav className="flex items-center justify-around border-t border-border-dark bg-surface-dark py-2 shrink-0">
-          <button 
+          <button
             onClick={() => setCurrentView('vault')}
             className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
               currentView === 'vault' ? 'text-accent-teal' : 'text-text-secondary hover:text-text-primary'
@@ -513,6 +515,15 @@ export default function VaultPage() {
             <span className="text-[10px] font-bold">Vault</span>
           </button>
           <button 
+            onClick={() => setCurrentView('inbox')}
+            className={`relative flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+              currentView === 'inbox' ? 'text-accent-teal' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Inbox className="w-4 h-4" />
+            <span className="text-[10px] font-bold">Inbox</span>
+          </button>
+          <button
             onClick={() => setCurrentView('generator')}
             className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
               currentView === 'generator' ? 'text-accent-teal' : 'text-text-secondary hover:text-text-primary'

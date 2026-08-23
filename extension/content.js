@@ -83,6 +83,63 @@ function createShieldSvg() {
 }
 
 // ──── DOM Inputs Scanner ────
+function getInputHint(input) {
+  const labelledBy = (input.getAttribute('aria-labelledby') || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(id => document.getElementById(id)?.textContent || '')
+    .join(' ');
+  const labelText = input.closest('label')?.textContent || '';
+
+  return [
+    input.type,
+    input.name,
+    input.id,
+    input.autocomplete,
+    input.getAttribute('aria-label'),
+    input.getAttribute('placeholder'),
+    labelledBy,
+    labelText,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function isUsernameLikeInput(input) {
+  if (!input || input.disabled || input.readOnly) return false;
+
+  const type = (input.type || 'text').toLowerCase();
+  if (!['text', 'email', 'tel'].includes(type)) return false;
+
+  const autocomplete = (input.autocomplete || '').toLowerCase();
+  if (autocomplete === 'username' || autocomplete === 'email') return true;
+  if (type === 'email') return true;
+
+  return /\b(email|e-mail|username|user\s*name|login|user\s*id|userid|account)\b/.test(getInputHint(input));
+}
+
+function trackDetectedPair(pair) {
+  const existing = detectedInputs.find(candidate =>
+    (pair.password && candidate.password === pair.password) ||
+    (pair.username && candidate.username === pair.username)
+  );
+
+  if (!existing) {
+    detectedInputs.push(pair);
+    setupInputListeners(pair);
+    return;
+  }
+
+  const newInputs = [];
+  if (!existing.password && pair.password) {
+    existing.password = pair.password;
+    newInputs.push(pair.password);
+  }
+  if (!existing.username && pair.username) {
+    existing.username = pair.username;
+    newInputs.push(pair.username);
+  }
+  if (newInputs.length > 0) setupInputListeners(existing, newInputs);
+}
+
 function scanForInputs() {
   const isVaultGuardApp = document.querySelector('meta[name="vaultguard-app"]');
   const isLoginPage = window.location.pathname.includes('/login') || 
@@ -95,8 +152,9 @@ function scanForInputs() {
     return;
   }
 
-  detectedInputs = detectedInputs.filter(pair => pair.password?.isConnected);
+  detectedInputs = detectedInputs.filter(pair => pair.password?.isConnected || pair.username?.isConnected);
   const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
+  const usernameInputs = Array.from(document.querySelectorAll('input')).filter(isUsernameLikeInput);
 
   const newDetected = [];
 
@@ -137,14 +195,17 @@ function scanForInputs() {
     });
   });
 
-  // Track state changes to add overlay triggers
-  newDetected.forEach(pair => {
-    const isAlreadyTracked = detectedInputs.some(existing => existing.password === pair.password);
-    if (!isAlreadyTracked) {
-      detectedInputs.push(pair);
-      setupInputListeners(pair);
+  // Many modern login pages use a two-step flow: the email/username field is
+  // rendered first and the password field appears only after Continue/Next.
+  // Track those username-only fields so suggestions are available on step one.
+  usernameInputs.forEach(usernameInput => {
+    if (!newDetected.some(pair => pair.username === usernameInput)) {
+      newDetected.push({ password: null, username: usernameInput });
     }
   });
+
+  // Track state changes to add overlay triggers
+  newDetected.forEach(trackDetectedPair);
 
   // Clean up and reposition overlays for SPA dynamically
   repositionOverlays();
@@ -160,8 +221,7 @@ function scheduleInputScan() {
 }
 
 // Attach event listeners to input pairs
-function setupInputListeners(pair) {
-  const inputs = [pair.password, pair.username].filter(Boolean);
+function setupInputListeners(pair, inputs = [pair.password, pair.username].filter(Boolean)) {
 
   inputs.forEach(input => {
     // Show icon on focus or hover
@@ -373,91 +433,60 @@ function cleanupAllOverlays() {
   detectedInputs = [];
 }
 
-// ──── Form Submission & Successful Login Heuristics ────
-async function savePendingSubmit(username, password, pair) {
-  if (!password || password.length < 4) return;
+// ──── Automatic local capture / pending inbox ────
+function isCredentialContext(pair) {
+  const form = pair?.password?.form || pair?.username?.form;
+  const context = [
+    form?.innerText || '',
+    form?.getAttribute?.('aria-label') || '',
+    form?.getAttribute?.('name') || '',
+    pair?.username ? getInputHint(pair.username) : '',
+    pair?.password ? getInputHint(pair.password) : '',
+  ].join(' ').toLowerCase();
+  if (/\b(otp|one[- ]?time|verification|security code|captcha|cvv|card number|search)\b/.test(context)) return false;
+  return /\b(log[ -]?in|sign[ -]?in|sign[ -]?up|register|password|username|email|account|continue|next|submit)\b/.test(context);
+}
+
+function showAutoSaveToast(message) {
+  initShadowDom();
+  const oldToast = shadowRoot.querySelector('.vg-autosave-toast');
+  if (oldToast) oldToast.remove();
+  const toast = document.createElement('div');
+  toast.className = 'vg-autosave-toast';
+  toast.textContent = message;
+  shadowRoot.appendChild(toast);
+  window.setTimeout(() => toast.remove(), 3500);
+}
+
+async function queueAutoSaveCandidate(username, password, pair) {
+  if (!pair || !isCredentialContext(pair)) return;
   const cleanUsername = (username || '').trim();
-
-  // Temporarily store in background session (for page reloads / redirects)
-  chrome.runtime.sendMessage({
-    action: 'SET_PENDING_CREDENTIAL',
-    data: {
-      username: cleanUsername,
-      password: password,
-      website: window.location.origin,
-      title: document.title || window.location.hostname
-    }
-  }).catch(() => {});
-
-  // Start checking for SPA (Single Page Application) success in-place (no page reload)
-  startSpaSuccessTracker(pair, cleanUsername, password);
-}
-
-function startSpaSuccessTracker(pair, username, password) {
-  let ticks = 0;
-  const originalUrl = window.location.href;
-  const originalPath = window.location.pathname;
-
-  const interval = setInterval(async () => {
-    ticks++;
-    
-    // Check up to 15 seconds (30 * 500ms)
-    if (ticks > 30) {
-      clearInterval(interval);
-      return;
-    }
-
-    const isPasswordDetached = !pair.password.isConnected || pair.password.offsetWidth === 0 || pair.password.offsetHeight === 0;
-    const hasUrlChanged = window.location.href !== originalUrl || window.location.pathname !== originalPath;
-
-    // If login input is gone or URL changed, we assume successful login
-    if (isPasswordDetached || hasUrlChanged) {
-      clearInterval(interval);
-
-      // Verify that we didn't just fail and reload/stay on login path
-      const passwordInputs = document.querySelectorAll('input[type="password"]');
-      if (passwordInputs.length > 0 && !hasUrlChanged) {
-        // Form is still there, login likely failed or user cleared it
-        return;
-      }
-
-      await verifyAndPromptSave(username, password);
-      chrome.runtime.sendMessage({ action: 'CLEAR_PENDING_CREDENTIAL' }).catch(() => {});
-    }
-  }, 500);
-}
-
-async function checkPendingCredentialOnLoad() {
+  const cleanPassword = password || '';
+  if (!cleanUsername && !cleanPassword) return;
   try {
-    const res = await chrome.runtime.sendMessage({ action: 'GET_PENDING_CREDENTIAL' });
-    if (res && res.success && res.pendingCredential) {
-      const pending = res.pendingCredential;
-      
-      // If it was saved less than 60 seconds ago
-      if (Date.now() - pending.timestamp < 60000) {
-        const passwordInputs = document.querySelectorAll('input[type="password"]');
-        // If there's no password input on the new page, or we are on a different dashboard path, prompt
-        if (passwordInputs.length === 0 || !window.location.href.includes('/login') && !window.location.href.includes('/signin')) {
-          await verifyAndPromptSave(pending.username, pending.password);
-        }
-      }
-      
-      // Always clear to prevent duplicate alerts
-      await chrome.runtime.sendMessage({ action: 'CLEAR_PENDING_CREDENTIAL' });
+    const response = await chrome.runtime.sendMessage({
+      action: 'QUEUE_PENDING_CREDENTIAL',
+      data: {
+        username: cleanUsername,
+        password: cleanPassword,
+        title: document.title || window.location.hostname,
+      },
+    });
+    if (response?.success && !response.duplicate) {
+      showAutoSaveToast(`New credential saved — ${response.pendingCount || 1} pending`);
     }
   } catch (err) {
-    console.error('Error checking pending credential on load:', err);
+    console.warn('VaultGuard could not queue local autosave candidate:', err);
   }
 }
 
-async function verifyAndPromptSave(username, password) {
-  const result = await chrome.runtime.sendMessage({
-    action: 'CHECK_CREDENTIAL_FOR_SAVE',
-    username,
-    password,
-  });
-  if (!result?.success || result.exactMatch) return;
-  showSaveBanner(username, password, result.usernameMatch || null);
+async function savePendingSubmit(username, password, pair) {
+  await queueAutoSaveCandidate(username, password, pair);
+}
+
+async function checkPendingCredentialOnLoad() {
+  // Pending credentials are now encrypted in the inbox immediately. Nothing
+  // sensitive is carried through redirects or sent to the server here.
 }
 
 function showSaveBanner(username, password, existingLogin) {
@@ -633,12 +662,13 @@ async function init() {
 
   // Monitor form submissions
   window.addEventListener('submit', (e) => {
-    detectedInputs.filter(pair => !pair.password.form || pair.password.form === e.target).forEach(pair => {
+    detectedInputs.filter(pair => {
+      const fieldForm = pair.password?.form || pair.username?.form;
+      return !fieldForm || fieldForm === e.target;
+    }).forEach(pair => {
       const uVal = pair.username ? pair.username.value : lastTypedUsername;
       const pVal = pair.password ? pair.password.value : lastTypedPassword;
-      if (pVal && pVal.length >= 4) {
-        savePendingSubmit(uVal, pVal, pair);
-      }
+      savePendingSubmit(uVal, pVal, pair);
     });
   }, true);
 
@@ -649,12 +679,13 @@ async function init() {
       const text = (btn.innerText || btn.value || '').toLowerCase();
       if (text.includes('log in') || text.includes('signin') || text.includes('submit') || text.includes('register') || text.includes('sign up') || text.includes('continue') || text.includes('next')) {
         setTimeout(() => {
-          detectedInputs.filter(pair => !btn.form || pair.password.form === btn.form).forEach(pair => {
+          detectedInputs.filter(pair => {
+            const fieldForm = pair.password?.form || pair.username?.form;
+            return !btn.form || fieldForm === btn.form;
+          }).forEach(pair => {
             const uVal = pair.username ? pair.username.value : lastTypedUsername;
             const pVal = pair.password ? pair.password.value : lastTypedPassword;
-            if (pVal && pVal.length >= 4) {
-              savePendingSubmit(uVal, pVal, pair);
-            }
+            savePendingSubmit(uVal, pVal, pair);
           });
         }, 100);
       }

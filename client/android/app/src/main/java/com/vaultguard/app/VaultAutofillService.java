@@ -24,6 +24,7 @@ import org.json.JSONObject;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 // Inline suggestions and intent authentication imports
 import android.service.autofill.InlinePresentation;
@@ -40,6 +41,7 @@ public class VaultAutofillService extends AutofillService {
     private static final String TAG = "VaultAutofill";
     private static final String PREFS_FILE = "vaultguard_secure_prefs";
     private static final String KEY_ENTRIES = "decrypted_entries";
+    private static final String KEY_PENDING_AUTOSAVE = "pending_autosave";
 
     // Map well-known native app package names to their website domains
     private static final Map<String, String> PACKAGE_TO_DOMAIN = new HashMap<>();
@@ -258,11 +260,69 @@ public class VaultAutofillService extends AutofillService {
 
     @Override
     public void onSaveRequest(SaveRequest request, SaveCallback callback) {
-        // A native autofill save cannot be safely persisted here because this
-        // service has no authenticated server session or vault encryption key.
-        // Do not acknowledge a save that was not actually stored.
-        android.util.Log.w(TAG, "Native autofill save is not supported yet");
-        callback.onFailure("VaultGuard cannot save new credentials from this form yet.");
+        try {
+            List<FillContext> contexts = request.getFillContexts();
+            if (contexts == null || contexts.isEmpty()) {
+                callback.onSuccess();
+                return;
+            }
+            AssistStructure structure = contexts.get(contexts.size() - 1).getStructure();
+            String packageName = structure.getActivityComponent().getPackageName();
+            AutofillFields fields = new AutofillFields();
+            for (int i = 0; i < structure.getWindowNodeCount(); i++) {
+                findAutofillNodes(structure.getWindowNodeAt(i).getRootViewNode(), fields, isBrowser(packageName));
+            }
+            CredentialValues values = new CredentialValues();
+            for (int i = 0; i < structure.getWindowNodeCount(); i++) {
+                extractCredentialValues(structure.getWindowNodeAt(i).getRootViewNode(), fields, values);
+            }
+            if (values.password.isEmpty() && values.username.isEmpty() || isExcludedSaveContext(fields, structure)) {
+                callback.onSuccess();
+                return;
+            }
+
+            SharedPreferences prefs = getEncryptedPrefs();
+            if (prefs == null) {
+                callback.onFailure("VaultGuard secure storage is unavailable.");
+                return;
+            }
+            String website = fields.webUrl;
+            if (website == null || website.isEmpty()) website = PACKAGE_TO_DOMAIN.getOrDefault(packageName, packageName);
+            if (website != null && !website.startsWith("http://") && !website.startsWith("https://")) {
+                website = "https://" + website;
+            }
+
+            JSONObject pending = new JSONObject();
+            pending.put("id", UUID.randomUUID().toString());
+            pending.put("title", website == null || website.isEmpty() ? "New credential" : website);
+            pending.put("website", website == null ? "" : website);
+            pending.put("username", values.username);
+            pending.put("password", values.password);
+            pending.put("category", "General");
+            pending.put("kind", "new");
+            pending.put("createdAt", System.currentTimeMillis());
+            pending.put("updatedAt", System.currentTimeMillis());
+
+            JSONArray pendingItems = new JSONArray(prefs.getString(KEY_PENDING_AUTOSAVE, "[]"));
+            boolean merged = false;
+            for (int i = 0; i < pendingItems.length(); i++) {
+                JSONObject existing = pendingItems.getJSONObject(i);
+                if (website != null && website.equalsIgnoreCase(existing.optString("website", "")) &&
+                    !values.username.isEmpty() && values.username.equalsIgnoreCase(existing.optString("username", ""))) {
+                    existing.put("password", values.password);
+                    existing.put("updatedAt", System.currentTimeMillis());
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) pendingItems.put(pending);
+            prefs.edit().putString(KEY_PENDING_AUTOSAVE, pendingItems.toString()).apply();
+            android.widget.Toast.makeText(this, "New credential saved to VaultGuard Auto-Save Inbox", android.widget.Toast.LENGTH_SHORT).show();
+            callback.onSuccess();
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Failed to queue native autofill candidate", e);
+            callback.onFailure("VaultGuard could not store this credential locally.");
+        }
     }
 
     // --- Helper classes and methods ---
@@ -272,6 +332,40 @@ public class VaultAutofillService extends AutofillService {
         AutofillId passwordId = null;
         AutofillId focusedId = null;
         String webUrl = null;
+    }
+
+    private static class CredentialValues {
+        String username = "";
+        String password = "";
+    }
+
+    private void extractCredentialValues(AssistStructure.ViewNode node, AutofillFields fields, CredentialValues values) {
+        if (node == null) return;
+        AutofillValue value = node.getAutofillValue();
+        if (value != null && value.isText()) {
+            String text = value.getTextValue() == null ? "" : value.getTextValue().toString();
+            if (fields.passwordId != null && fields.passwordId.equals(node.getAutofillId())) values.password = text;
+            if (fields.usernameId != null && fields.usernameId.equals(node.getAutofillId())) values.username = text;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) extractCredentialValues(node.getChildAt(i), fields, values);
+    }
+
+    private boolean isExcludedSaveContext(AutofillFields fields, AssistStructure structure) {
+        if (fields.passwordId == null && fields.usernameId == null) return true;
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < structure.getWindowNodeCount(); i++) collectNodeContext(structure.getWindowNodeAt(i).getRootViewNode(), text);
+        String lower = text.toString().toLowerCase();
+        if (lower.matches(".*\\b(otp|one[- ]?time|verification|security code|captcha|cvv|card number|pin)\\b.*")) return true;
+        return fields.passwordId == null && !lower.matches(".*\\b(login|log[ -]?in|sign[ -]?in|sign[ -]?up|register|username|email|account)\\b.*");
+    }
+
+    private void collectNodeContext(AssistStructure.ViewNode node, StringBuilder text) {
+        if (node == null) return;
+        if (node.getHint() != null) text.append(' ').append(node.getHint());
+        if (node.getIdEntry() != null) text.append(' ').append(node.getIdEntry());
+        String[] hints = node.getAutofillHints();
+        if (hints != null) for (String hint : hints) text.append(' ').append(hint);
+        for (int i = 0; i < node.getChildCount(); i++) collectNodeContext(node.getChildAt(i), text);
     }
 
     /**

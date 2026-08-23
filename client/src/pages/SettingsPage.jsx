@@ -261,18 +261,30 @@ export default function SettingsPage() {
   const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
     return localStorage.getItem('vaultguard_lock_timeout') || '5';
   });
+  const [autoLockMessage, setAutoLockMessage] = useState('');
 
   const [importStatus, setImportStatus] = useState('');
   const [importError, setImportError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
-  const handleTimeoutChange = (e) => {
+  const handleTimeoutChange = async (e) => {
     const val = e.target.value;
     setAutoLockTimeout(val);
     localStorage.setItem('vaultguard_lock_timeout', val);
+    const fallbackMessage = val === '0'
+      ? 'Vault set to never lock automatically.'
+      : `Vault will lock after ${val} minute${val === '1' ? '' : 's'} of inactivity.`;
     if (isExtension) {
-      chrome.runtime.sendMessage({ action: 'SET_LOCK_TIMEOUT', lockTimeout: val })
-        .catch(err => console.error('Failed to update extension lock timeout:', err));
+      try {
+        const response = await chrome.runtime.sendMessage({ action: 'SET_LOCK_TIMEOUT', lockTimeout: val });
+        if (!response?.success) throw new Error(response?.error || 'Failed to update vault lock setting.');
+        setAutoLockMessage(response.message || fallbackMessage);
+      } catch (err) {
+        console.error('Failed to update extension lock timeout:', err);
+        setAutoLockMessage(err.message || 'Failed to update vault lock setting.');
+      }
+    } else {
+      setAutoLockMessage(fallbackMessage);
     }
     // Dispatch an event to let the hook know the timeout changed
     window.dispatchEvent(new Event('vaultguard_timeout_changed'));
@@ -649,6 +661,7 @@ export default function SettingsPage() {
               <option value="30" className="bg-surface-dark">30 Minutes</option>
               <option value="0" className="bg-surface-dark">Never Lock</option>
             </select>
+            {autoLockMessage && <p className="text-[10px] font-semibold text-accent-teal">{autoLockMessage}</p>}
 
           </div>
         </div>
@@ -790,6 +803,7 @@ export default function SettingsPage() {
             <option value="30" className="bg-surface-dark">30 Minutes</option>
             <option value="0" className="bg-surface-dark">Never Lock</option>
           </select>
+          {autoLockMessage && <p className="text-[10px] font-semibold text-accent-teal">{autoLockMessage}</p>}
           <p className="text-[10px] text-text-secondary/60">
             Automatically lock the vault (clearing keys from memory) if there is no keyboard, mouse or touch activity.
           </p>

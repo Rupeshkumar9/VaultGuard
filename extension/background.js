@@ -14,11 +14,12 @@ const CONTENT_SCRIPT_ACTIONS = new Set([
   'GET_MATCHING_METADATA',
   'GET_CREDENTIAL_FOR_FILL',
   'CHECK_CREDENTIAL_FOR_SAVE',
+  'QUEUE_PENDING_CREDENTIAL',
+  'GET_PENDING_CREDENTIALS',
+  'UPDATE_PENDING_CREDENTIAL',
+  'DELETE_PENDING_CREDENTIAL',
   'SAVE_CREDENTIAL',
   'UPDATE_CREDENTIAL',
-  'SET_PENDING_CREDENTIAL',
-  'GET_PENDING_CREDENTIAL',
-  'CLEAR_PENDING_CREDENTIAL',
   'SET_FOCUSED_FRAME',
   'USER_ACTIVITY',
 ]);
@@ -226,6 +227,7 @@ async function lockVault({ forgetPersistent = false } = {}) {
   await chrome.storage.local.set({ vaultExplicitlyLocked: true });
   if (forgetPersistent) {
     await localDb.clearRememberedSession();
+    await localDb.clearPending();
     await chrome.storage.local.remove(['masterPassword', 'token', 'user']);
     await chrome.storage.local.set({ rememberVault: false });
   }
@@ -342,15 +344,98 @@ async function matchingEntriesForSite(pageUrl, session) {
   return rawEntries.filter(entry => entry.website && sitesMatch(entry.website, pageUrl));
 }
 
+async function readPendingCredentials(masterKey) {
+  const records = await localDb.getAllPending();
+  const items = [];
+  for (const record of records) {
+    try {
+      const data = JSON.parse(await decryptWithKey(record.encryptedData, record.iv, masterKey));
+      items.push({ ...record, ...data });
+    } catch (error) {
+      console.error('Failed to decrypt a pending autosave item:', error);
+    }
+  }
+  return items.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+}
+
+async function writePendingCredential(data, session, sender) {
+  if (!session.masterPassword) return { success: false, error: 'Vault is locked.' };
+  const senderSite = getSenderSite(sender);
+  const website = senderSite.origin;
+  const username = boundedString(data.username, 'Username', { max: 1000, trim: false });
+  const password = boundedString(data.password, 'Password', { max: MAX_FIELD_LENGTH, trim: false });
+  if (!username && !password) return { success: false, error: 'A username or password is required.' };
+  const title = boundedString(data.title || senderSite.hostname, 'Title', { max: 200 });
+  const category = boundedString(data.category || 'General', 'Category', { max: 100 });
+  const masterKey = await getMasterKey(session.masterPassword);
+  const existingItems = await readPendingCredentials(masterKey);
+  const normalizedUser = username.trim().toLowerCase();
+  const existingPending = existingItems.find(item =>
+    sitesMatch(item.website, website) &&
+    ((normalizedUser && item.username?.trim().toLowerCase() === normalizedUser) ||
+      (!normalizedUser && !item.username && !item.password) ||
+      (!item.username && username) || (!username && item.password && password))
+  );
+
+  const matchingEntries = await matchingEntriesForSite(website, session);
+  let existingId = existingPending?.existingId || null;
+  let kind = existingPending?.kind || 'new';
+  for (const entry of matchingEntries) {
+    const sensitive = await decryptSensitiveEntry(entry, masterKey);
+    if (username && (sensitive.username || '').trim().toLowerCase() === normalizedUser) {
+      if (sensitive.password !== password || !password) {
+        existingId = entry._id;
+        kind = 'updated';
+      } else if (password && sensitive.password === password) {
+        return { success: true, duplicate: true, pendingCount: existingItems.length };
+      }
+      break;
+    }
+  }
+
+  const merged = {
+    title: title || existingPending?.title || senderSite.hostname,
+    website,
+    category,
+    username: username || existingPending?.username || '',
+    password: password || existingPending?.password || '',
+    notes: boundedString(data.notes || existingPending?.notes, 'Notes', { max: MAX_FIELD_LENGTH, trim: false }),
+  };
+  const encrypted = await encryptWithKey(JSON.stringify(merged), masterKey);
+  const record = {
+    id: existingPending?.id || crypto.randomUUID(),
+    encryptedData: encrypted.encryptedData,
+    iv: encrypted.iv,
+    website,
+    title: merged.title,
+    kind,
+    existingId,
+    createdAt: existingPending?.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  };
+  await localDb.putPending(record);
+  return {
+    success: true,
+    duplicate: false,
+    id: record.id,
+    kind,
+    pendingCount: (await localDb.getAllPending()).length,
+  };
+}
+
 // ──── Main Message Router ────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Standard Chrome message passing is asynchronous if we return true
   const handleMessage = async () => {
     try {
       await ensureInitialized();
-      await checkInactivityLock();
       if (!message || typeof message.action !== 'string') {
         throw new Error('A valid message action is required.');
+      }
+      // Let a fresh login or an explicit settings change establish the new
+      // policy before evaluating the previous timeout policy.
+      if (!['UNLOCK_VAULT', 'SET_LOCK_TIMEOUT'].includes(message.action)) {
+        await checkInactivityLock();
       }
       assertAuthorizedSender(message.action, sender);
       switch (message.action) {
@@ -398,18 +483,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (!['0', '1', '5', '15', '30'].includes(lockTimeout)) {
             throw new Error('Invalid lock timeout.');
           }
-          await chrome.storage.local.set({ lockTimeout });
+          const neverLock = lockTimeout === '0';
+          await chrome.storage.local.set({
+            lockTimeout,
+            rememberVault: neverLock,
+            vaultExplicitlyLocked: false,
+          });
+          if (neverLock) {
+            const session = await chrome.storage.session.get(['token', 'user', 'masterPassword']);
+            if (session.masterPassword) {
+              await localDb.saveRememberedSession({
+                token: session.token || null,
+                user: session.user || null,
+                masterPassword: session.masterPassword,
+              });
+            }
+          } else {
+            await localDb.clearRememberedSession();
+            await chrome.storage.local.remove(['token', 'user', 'masterPassword']);
+          }
           await scheduleAutoLockAlarm();
-          return { success: true };
+          return {
+            success: true,
+            lockTimeout,
+            rememberVault: neverLock,
+            message: neverLock
+              ? 'Vault set to never lock automatically.'
+              : `Vault will lock after ${lockTimeout} minute${lockTimeout === '1' ? '' : 's'} of inactivity.`,
+          };
         }
         case 'UNLOCK_VAULT': {
           const email = boundedString(message.email, 'Email', { required: true, max: 320 }).toLowerCase();
           const masterPassword = boundedString(message.masterPassword, 'Master password', { required: true, trim: false });
           const rememberVault = message.rememberVault === true;
+          const lockTimeout = rememberVault ? '0' : '5';
           await chrome.storage.local.set({
             rememberVault: !!rememberVault,
+            lockTimeout,
             vaultExplicitlyLocked: false
           });
+          if (!rememberVault) {
+            await localDb.clearRememberedSession();
+          }
           
           let unlockedLocally = false;
           let userToUse = null;
@@ -804,6 +919,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
           return { success: true, exactMatch: false, usernameMatch };
         }
+        case 'QUEUE_PENDING_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['masterPassword', 'encryptedEntries']);
+          return writePendingCredential(message.data || {}, session, sender);
+        }
+        case 'GET_PENDING_CREDENTIALS': {
+          const session = await chrome.storage.session.get(['masterPassword']);
+          if (!session.masterPassword) return { success: false, error: 'Vault is locked.' };
+          const masterKey = await getMasterKey(session.masterPassword);
+          return { success: true, credentials: await readPendingCredentials(masterKey) };
+        }
+        case 'UPDATE_PENDING_CREDENTIAL': {
+          const session = await chrome.storage.session.get(['masterPassword']);
+          if (!session.masterPassword) return { success: false, error: 'Vault is locked.' };
+          const id = boundedString(message.id, 'Pending credential ID', { required: true, max: 100 });
+          const records = await localDb.getAllPending();
+          const record = records.find(item => item.id === id);
+          if (!record) return { success: false, error: 'Pending credential not found.' };
+          const masterKey = await getMasterKey(session.masterPassword);
+          const current = JSON.parse(await decryptWithKey(record.encryptedData, record.iv, masterKey));
+          const next = { ...current, ...(message.data || {}) };
+          const username = boundedString(next.username, 'Username', { max: 1000, trim: false });
+          const password = boundedString(next.password, 'Password', { max: MAX_FIELD_LENGTH, trim: false });
+          const encrypted = await encryptWithKey(JSON.stringify({ ...next, username, password }), masterKey);
+          await localDb.putPending({ ...record, encryptedData: encrypted.encryptedData, iv: encrypted.iv, title: next.title, updatedAt: Date.now() });
+          return { success: true };
+        }
+        case 'DELETE_PENDING_CREDENTIAL': {
+          const id = boundedString(message.id, 'Pending credential ID', { required: true, max: 100 });
+          await localDb.deletePending(id);
+          return { success: true };
+        }
         case 'SAVE_CREDENTIAL': {
           const session = await chrome.storage.session.get(['masterPassword']);
           if (!session.masterPassword) {
@@ -925,51 +1071,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return { success: true, entry: favRes.data };
           }
           throw new Error(favRes.message || 'Failed to toggle favorite.');
-        }
-        case 'SET_PENDING_CREDENTIAL': {
-          if (!message.data || typeof message.data !== 'object') throw new Error('Pending credential data is required.');
-          const senderSite = getSenderSite(sender);
-          const username = boundedString(message.data.username, 'Username', { max: 1000, trim: false });
-          const password = boundedString(message.data.password, 'Password', { required: true, trim: false });
-          const title = boundedString(message.data.title, 'Title', { max: 200 });
-          await chrome.storage.session.set({
-            pendingCredential: {
-              username,
-              password,
-              website: senderSite.origin,
-              title,
-              tabId: sender.tab.id,
-              frameId: sender.frameId ?? 0,
-              timestamp: Date.now()
-            }
-          });
-          return { success: true };
-        }
-        case 'GET_PENDING_CREDENTIAL': {
-          const session = await chrome.storage.session.get(['pendingCredential']);
-          const pending = session.pendingCredential;
-          if (!pending) return { success: true, pendingCredential: null };
-
-          const senderSite = getSenderSite(sender);
-          const isExpired = Date.now() - pending.timestamp >= 60000;
-          const isSameContext = pending.tabId === sender.tab.id &&
-            pending.frameId === (sender.frameId ?? 0) &&
-            pending.website === senderSite.origin;
-          if (isExpired) await chrome.storage.session.remove(['pendingCredential']);
-          return { success: true, pendingCredential: !isExpired && isSameContext ? pending : null };
-        }
-        case 'CLEAR_PENDING_CREDENTIAL': {
-          const session = await chrome.storage.session.get(['pendingCredential']);
-          const pending = session.pendingCredential;
-          if (pending) {
-            const senderSite = getSenderSite(sender);
-            if (pending.tabId === sender.tab.id &&
-                pending.frameId === (sender.frameId ?? 0) &&
-                pending.website === senderSite.origin) {
-              await chrome.storage.session.remove(['pendingCredential']);
-            }
-          }
-          return { success: true };
         }
         case 'USER_ACTIVITY': {
           await resetAutoLockTimer();

@@ -44,6 +44,7 @@ public class VaultBridgePlugin extends Plugin {
 
     private static final String PREFS_FILE = "vaultguard_secure_prefs";
     private static final String KEY_ENTRIES = "decrypted_entries";
+    private static final String KEY_PENDING_AUTOSAVE = "pending_autosave";
     private static final String BIOMETRIC_PREFS_FILE = "vaultguard_biometric_store";
     private static final String BIOMETRIC_KEY_ALIAS = "vaultguard_biometric_master";
     private static final String BIOMETRIC_IV = "iv";
@@ -107,6 +108,98 @@ public class VaultBridgePlugin extends Plugin {
         } catch (Exception e) {
             android.util.Log.e("VaultBridge", "clearVault error", e);
             call.reject("Failed to clear secure storage: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getPendingCredentials(PluginCall call) {
+        try {
+            SharedPreferences prefs = getEncryptedPrefs();
+            if (prefs == null) {
+                call.reject("Failed to initialize secure storage");
+                return;
+            }
+            JSObject result = new JSObject();
+            result.put("items", new org.json.JSONArray(prefs.getString(KEY_PENDING_AUTOSAVE, "[]")));
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Failed to read Auto-Save Inbox", e);
+        }
+    }
+
+    @PluginMethod
+    public void updatePendingCredential(PluginCall call) {
+        String id = call.getString("id", null);
+        if (id == null || id.isEmpty()) {
+            call.reject("Pending credential ID is required");
+            return;
+        }
+        try {
+            SharedPreferences prefs = getEncryptedPrefs();
+            if (prefs == null) {
+                call.reject("Failed to initialize secure storage");
+                return;
+            }
+            org.json.JSONArray items = new org.json.JSONArray(prefs.getString(KEY_PENDING_AUTOSAVE, "[]"));
+            JSObject data = call.getObject("data");
+            if (data == null) data = new JSObject();
+            boolean found = false;
+            for (int i = 0; i < items.length(); i++) {
+                org.json.JSONObject item = items.getJSONObject(i);
+                if (id.equals(item.optString("id", ""))) {
+                    for (String key : new String[] {"title", "website", "username", "password", "category"}) {
+                        if (data.has(key)) item.put(key, data.get(key));
+                    }
+                    item.put("updatedAt", System.currentTimeMillis());
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                call.reject("Pending credential not found");
+                return;
+            }
+            prefs.edit().putString(KEY_PENDING_AUTOSAVE, items.toString()).apply();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to update Auto-Save Inbox", e);
+        }
+    }
+
+    @PluginMethod
+    public void deletePendingCredential(PluginCall call) {
+        String id = call.getString("id", null);
+        if (id == null || id.isEmpty()) {
+            call.reject("Pending credential ID is required");
+            return;
+        }
+        try {
+            SharedPreferences prefs = getEncryptedPrefs();
+            if (prefs == null) {
+                call.reject("Failed to initialize secure storage");
+                return;
+            }
+            org.json.JSONArray current = new org.json.JSONArray(prefs.getString(KEY_PENDING_AUTOSAVE, "[]"));
+            org.json.JSONArray remaining = new org.json.JSONArray();
+            for (int i = 0; i < current.length(); i++) {
+                org.json.JSONObject item = current.getJSONObject(i);
+                if (!id.equals(item.optString("id", ""))) remaining.put(item);
+            }
+            prefs.edit().putString(KEY_PENDING_AUTOSAVE, remaining.toString()).apply();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to delete Auto-Save Inbox item", e);
+        }
+    }
+
+    @PluginMethod
+    public void clearPendingCredentials(PluginCall call) {
+        try {
+            SharedPreferences prefs = getEncryptedPrefs();
+            if (prefs != null) prefs.edit().remove(KEY_PENDING_AUTOSAVE).apply();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to clear Auto-Save Inbox", e);
         }
     }
 

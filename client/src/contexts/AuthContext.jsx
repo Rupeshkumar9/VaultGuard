@@ -3,6 +3,7 @@ import { api, setToken, clearToken } from '../services/api';
 import { localDb } from '../services/android/localDb';
 import { isNative, isExtension } from '../utils/platform';
 import { mobileAuth } from '../services/android/mobileAuth';
+import { vaultBridge } from '../services/android/vaultBridge';
 import {
   createOpaqueRegistrationRecord,
   loginWithOpaque,
@@ -334,6 +335,7 @@ export const AuthProvider = ({ children }) => {
             await mobileAuth.clearSecureCredentials(user.email);
           }
           await mobileAuth.clearAutoUnlockPassword();
+          await vaultBridge.clearPendingCredentials();
         }
       }
     } catch (error) {

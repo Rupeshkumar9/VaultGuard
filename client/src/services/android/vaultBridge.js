@@ -25,6 +25,31 @@ export const vaultBridge = {
     }
   },
 
+  async getPendingCredentials() {
+    try {
+      const result = await VaultBridge.getPendingCredentials();
+      return result?.items || [];
+    } catch (err) {
+      console.warn('VaultBridge pending inbox not available:', err.message);
+      return [];
+    }
+  },
+
+  async updatePendingCredential(id, data) {
+    await VaultBridge.updatePendingCredential({ id, data });
+    return true;
+  },
+
+  async deletePendingCredential(id) {
+    await VaultBridge.deletePendingCredential({ id });
+    return true;
+  },
+
+  async clearPendingCredentials() {
+    await VaultBridge.clearPendingCredentials();
+    return true;
+  },
+
   async diagnose() {
     try {
       const result = await VaultBridge.diagnose();

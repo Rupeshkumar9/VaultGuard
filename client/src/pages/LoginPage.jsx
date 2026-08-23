@@ -135,7 +135,7 @@ export default function LoginPage() {
                 onChange={(e) => setRememberPassword(e.target.checked)}
                 className="mt-0.5 rounded border-border-dark bg-bg-dark text-accent-teal"
               />
-              <span>Keep the extension unlocked after restarting the browser. This stores an encrypted copy of the master password locally.</span>
+              <span>Keep the vault unlocked after inactivity and browser restarts. This stores an encrypted copy of the master password locally.</span>
             </label>
 
             {error && (

@@ -1,6 +1,7 @@
 const DB_NAME = 'VaultGuardLocalDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'encrypted_entries';
+const PENDING_STORE_NAME = 'pending_autosave';
 const SECURE_STORE_NAME = 'secure_state';
 const WRAPPING_KEY_ID = 'remembered_session_key';
 const REMEMBERED_SESSION_ID = 'remembered_session';
@@ -26,6 +27,9 @@ function getDB() {
       const db = event.target.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: '_id' });
+      }
+      if (!db.objectStoreNames.contains(PENDING_STORE_NAME)) {
+        db.createObjectStore(PENDING_STORE_NAME, { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains(SECURE_STORE_NAME)) {
         db.createObjectStore(SECURE_STORE_NAME, { keyPath: 'id' });
@@ -58,6 +62,36 @@ async function deleteSecureRecord(id) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(SECURE_STORE_NAME, 'readwrite');
     transaction.objectStore(SECURE_STORE_NAME).delete(id);
+    transaction.oncomplete = () => resolve(true);
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+async function getAllPending() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(PENDING_STORE_NAME, 'readonly')
+      .objectStore(PENDING_STORE_NAME).getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function putPending(record) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(PENDING_STORE_NAME, 'readwrite');
+    transaction.objectStore(PENDING_STORE_NAME).put(record);
+    transaction.oncomplete = () => resolve(true);
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+async function deletePending(id) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(PENDING_STORE_NAME, 'readwrite');
+    transaction.objectStore(PENDING_STORE_NAME).delete(id);
     transaction.oncomplete = () => resolve(true);
     transaction.onerror = () => reject(transaction.error);
   });
@@ -145,6 +179,48 @@ export const localDb = {
       });
     } catch (err) {
       console.error('Failed to save entries to IndexedDB:', err);
+      return false;
+    }
+  },
+
+  async getAllPending() {
+    try {
+      return await getAllPending();
+    } catch (err) {
+      console.error('Failed to read pending autosave inbox:', err);
+      return [];
+    }
+  },
+
+  async putPending(record) {
+    try {
+      return await putPending(record);
+    } catch (err) {
+      console.error('Failed to write pending autosave inbox:', err);
+      return false;
+    }
+  },
+
+  async deletePending(id) {
+    try {
+      return await deletePending(id);
+    } catch (err) {
+      console.error('Failed to delete pending autosave item:', err);
+      return false;
+    }
+  },
+
+  async clearPending() {
+    try {
+      const db = await getDB();
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(PENDING_STORE_NAME, 'readwrite');
+        transaction.objectStore(PENDING_STORE_NAME).clear();
+        transaction.oncomplete = () => resolve(true);
+        transaction.onerror = () => reject(transaction.error);
+      });
+    } catch (err) {
+      console.error('Failed to clear pending autosave inbox:', err);
       return false;
     }
   },
