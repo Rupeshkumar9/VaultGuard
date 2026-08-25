@@ -1,3 +1,9 @@
+// Static registration and activeTab recovery can both reach the same page.
+// Keep declarations function-scoped so reinjecting this classic script is safe.
+(() => {
+if (globalThis.__vaultGuardContentScriptLoaded) return;
+globalThis.__vaultGuardContentScriptLoaded = true;
+
 // ──── Global Configurations and State ────
 let matchingLogins = [];
 let detectedInputs = [];
@@ -18,6 +24,7 @@ let routeObserver = null;
 let contentScriptInitialized = false;
 let metadataRetryTimer = null;
 let metadataRetryCount = 0;
+let siteAccessEnabled = true;
 
 function isVaultGuardLoginPage() {
   return window.location.pathname.includes('/login') ||
@@ -28,7 +35,7 @@ function isVaultGuardLoginPage() {
 
 function isContentScriptAllowedOnCurrentPage() {
   const isVaultGuardApp = document.querySelector('meta[name="vaultguard-app"]');
-  return !(isVaultGuardApp && !isVaultGuardLoginPage());
+  return siteAccessEnabled && !(isVaultGuardApp && !isVaultGuardLoginPage());
 }
 
 // ──── Shadow DOM Isolation ────
@@ -799,7 +806,13 @@ function autofillCredentials(username, password) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'VAULTGUARD_PING') {
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (request.action === 'VAULT_SESSION_READY') {
+    siteAccessEnabled = true;
     if (isContentScriptAllowedOnCurrentPage()) {
       void (async () => {
         await fetchMatchingLogins();
@@ -816,6 +829,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
       })();
     }
+    return false;
+  }
+
+  if (request.action === 'VAULT_SITE_ACCESS_REVOKED') {
+    siteAccessEnabled = false;
+    matchingLogins = [];
+    cleanupAllOverlays();
     return false;
   }
 
@@ -841,3 +861,4 @@ if (isContentScriptAllowedOnCurrentPage()) {
 } else {
   watchForLoginRoute();
 }
+})();

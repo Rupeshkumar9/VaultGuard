@@ -10,6 +10,8 @@ import { client as opaqueClient, ready as opaqueReady } from '@serenity-kit/opaq
 
 const AUTO_LOCK_ALARM = 'vaultguard-auto-lock';
 const MAX_FIELD_LENGTH = 10000;
+const BUILD_SERVER_URL = import.meta.env.VITE_API_URL || '';
+const BUILD_FRONTEND_URL = import.meta.env.VITE_FRONTEND_URL || '';
 const CONTENT_SCRIPT_ACTIONS = new Set([
   'GET_MATCHING_METADATA',
   'GET_CREDENTIAL_FOR_FILL',
@@ -83,10 +85,11 @@ function normalizeServerUrl(value) {
 
 async function getConfiguredServerUrl() {
   const { serverUrl } = await chrome.storage.local.get(['serverUrl']);
-  if (!serverUrl) {
+  const configuredUrl = serverUrl || BUILD_SERVER_URL;
+  if (!configuredUrl) {
     throw new Error('Server URL is not configured. Open the VaultGuard extension once.');
   }
-  return normalizeServerUrl(serverUrl);
+  return normalizeServerUrl(configuredUrl);
 }
 
 // ──── Session Restoration on Startup ────
@@ -269,6 +272,85 @@ async function notifyContentScripts(message) {
   } catch (error) {
     console.debug('Could not notify content scripts:', error);
   }
+}
+
+async function hasAllSitesAccess() {
+  if (!chrome.permissions?.contains) return true;
+  try {
+    return await chrome.permissions.contains({ origins: ['<all_urls>'] });
+  } catch (error) {
+    console.debug('Could not inspect host permissions:', error);
+    return false;
+  }
+}
+
+async function activateContentScriptInTab(tab) {
+  if (!tab?.id || !parseSiteIdentity(tab.url || '')) {
+    return { success: false, supported: false, error: 'The active tab is not a supported website.' };
+  }
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'VAULTGUARD_PING' });
+    if (response?.success) {
+      await chrome.tabs.sendMessage(tab.id, { action: 'VAULT_SESSION_READY' }).catch(() => null);
+      return { success: true, supported: true, alreadyActive: true };
+    }
+  } catch (error) {
+    // The static script was withheld or the page predates the permission grant.
+  }
+
+  if (!chrome.scripting?.executeScript) {
+    return { success: false, supported: true, error: 'Script injection is unavailable in this browser.' };
+  }
+
+  try {
+    const allFrames = await hasAllSitesAccess();
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames },
+      files: ['content.js'],
+    });
+    return { success: true, supported: true, alreadyActive: false, allFrames };
+  } catch (error) {
+    return {
+      success: false,
+      supported: true,
+      error: error?.message || 'VaultGuard does not have access to this website.',
+    };
+  }
+}
+
+async function activateContentScriptsInOpenTabs() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map((tab) => activateContentScriptInTab(tab).catch(() => null)));
+}
+
+async function deactivateContentScriptsWithoutAccess() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map(async (tab) => {
+    const site = parseSiteIdentity(tab?.url || '');
+    if (!tab?.id || !site) return;
+    const allowed = await chrome.permissions.contains({ origins: [`${site.origin}/*`] });
+    if (!allowed) {
+      await chrome.tabs.sendMessage(tab.id, { action: 'VAULT_SITE_ACCESS_REVOKED' }).catch(() => null);
+    }
+  }));
+}
+
+if (chrome.permissions?.onAdded) {
+  chrome.permissions.onAdded.addListener((permissions) => {
+    if (!permissions?.origins?.length) return;
+    void ensureInitialized()
+      .then(() => activateContentScriptsInOpenTabs())
+      .catch((error) => console.debug('Could not activate newly permitted tabs:', error));
+  });
+}
+
+if (chrome.permissions?.onRemoved) {
+  chrome.permissions.onRemoved.addListener((permissions) => {
+    if (!permissions?.origins?.length) return;
+    void deactivateContentScriptsWithoutAccess()
+      .catch((error) => console.debug('Could not deactivate revoked tabs:', error));
+  });
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -460,7 +542,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       switch (message.action) {
         case 'GET_SERVER_URL': {
           const settings = await chrome.storage.local.get(['serverUrl']);
-          return { serverUrl: settings.serverUrl || null };
+          return { serverUrl: settings.serverUrl || BUILD_SERVER_URL || null };
+        }
+        case 'ENSURE_CONTENT_SCRIPT': {
+          const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          return await activateContentScriptInTab(activeTab);
         }
         case 'SET_SERVER_URL': {
           const serverUrl = normalizeServerUrl(message.serverUrl);
@@ -474,8 +560,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         case 'OPEN_FRONTEND': {
           const { frontendUrl } = await chrome.storage.local.get(['frontendUrl']);
-          if (!frontendUrl) throw new Error('Frontend URL is not configured in this extension build.');
-          await chrome.tabs.create({ url: normalizeServerUrl(frontendUrl) });
+          const configuredUrl = frontendUrl || BUILD_FRONTEND_URL;
+          if (!configuredUrl) throw new Error('Frontend URL is not configured in this extension build.');
+          await chrome.tabs.create({ url: normalizeServerUrl(configuredUrl) });
           return { success: true };
         }
         case 'GET_LOCK_TIMEOUT': {

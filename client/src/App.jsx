@@ -8,6 +8,7 @@ import RegisterPage from './pages/RegisterPage';
 import { VaultProvider } from './contexts/VaultContext';
 import VaultPage from './pages/VaultPage';
 import { isExtension, isNative } from './utils/platform';
+import ExtensionSiteAccessGate from './components/common/ExtensionSiteAccessGate';
 
 function App() {
   const RouterComponent = (isExtension || isNative) ? HashRouter : BrowserRouter;
@@ -36,25 +37,28 @@ function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <CryptoProvider>
-        <VaultProvider>
-          <RouterComponent>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
+    <>
+      <ExtensionSiteAccessGate />
+      <AuthProvider>
+        <CryptoProvider>
+          <VaultProvider>
+            <RouterComponent>
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
 
-              {/* Protected Routes */}
-              <Route path="/" element={<ProtectedRoute> <VaultPage /> </ProtectedRoute>} />
+                {/* Protected Routes */}
+                <Route path="/" element={<ProtectedRoute> <VaultPage /> </ProtectedRoute>} />
 
-              {/* Redirect any other path to / */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </RouterComponent>
-        </VaultProvider>
-      </CryptoProvider>
-    </AuthProvider>
+                {/* Redirect any other path to / */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </RouterComponent>
+          </VaultProvider>
+        </CryptoProvider>
+      </AuthProvider>
+    </>
   );
 }
 
