@@ -12,6 +12,7 @@ import android.service.autofill.FillRequest;
 import android.service.autofill.FillResponse;
 import android.service.autofill.SaveCallback;
 import android.service.autofill.SaveRequest;
+import android.service.autofill.SaveInfo;
 import android.text.InputType;
 import android.view.View;
 import android.view.autofill.AutofillId;
@@ -196,15 +197,14 @@ public class VaultAutofillService extends AutofillService {
         if (prefs == null) {
             android.util.Log.e(TAG, "Failed to load SharedPreferences");
             showDebugToast("VaultGuard: Storage error");
-            callback.onSuccess(null);
+            sendSearchOnlyResponse(callback, autofillFields, inlineSpec);
             return;
         }
 
         String rawEntriesJson = prefs.getString(KEY_ENTRIES, null);
         if (rawEntriesJson == null || rawEntriesJson.isEmpty()) {
             android.util.Log.w(TAG, "No credentials synced from client app yet");
-            showDebugToast("VaultGuard: No credentials synced yet. Open VaultGuard and unlock your vault first.");
-            callback.onSuccess(null);
+            sendSearchOnlyResponse(callback, autofillFields, inlineSpec);
             return;
         }
 
@@ -212,6 +212,8 @@ public class VaultAutofillService extends AutofillService {
             JSONArray entries = new JSONArray(rawEntriesJson);
             android.util.Log.d(TAG, "Total synced entries in DB: " + entries.length());
             FillResponse.Builder responseBuilder = new FillResponse.Builder();
+            SaveInfo saveInfo = buildSaveInfo(autofillFields);
+            if (saveInfo != null) responseBuilder.setSaveInfo(saveInfo);
             int datasetCount = 0;
 
             // First pass: look for direct domain/package name matches
@@ -260,6 +262,7 @@ public class VaultAutofillService extends AutofillService {
 
     @Override
     public void onSaveRequest(SaveRequest request, SaveCallback callback) {
+        android.util.Log.d(TAG, "onSaveRequest triggered");
         try {
             List<FillContext> contexts = request.getFillContexts();
             if (contexts == null || contexts.isEmpty()) {
@@ -292,6 +295,33 @@ public class VaultAutofillService extends AutofillService {
                 website = "https://" + website;
             }
 
+            String kind = "new";
+            String existingId = null;
+            String rawEntriesJson = prefs.getString(KEY_ENTRIES, "[]");
+            JSONArray syncedEntries = new JSONArray(rawEntriesJson == null ? "[]" : rawEntriesJson);
+            for (int i = 0; i < syncedEntries.length(); i++) {
+                JSONObject entry = syncedEntries.getJSONObject(i);
+                if (!isMatch(entry.optString("website", ""), fields.webUrl, packageName)) continue;
+
+                String entryUsername = entry.optString("username", "");
+                String entryPassword = entry.optString("password", "");
+                boolean sameUsername = !values.username.isEmpty()
+                    && values.username.equalsIgnoreCase(entryUsername);
+                boolean samePassword = !values.password.isEmpty()
+                    && values.password.equals(entryPassword);
+
+                if (sameUsername && samePassword) {
+                    android.util.Log.d(TAG, "Submitted credential is unchanged; skipping Inbox capture");
+                    callback.onSuccess();
+                    return;
+                }
+                if (sameUsername || samePassword) {
+                    kind = "updated";
+                    existingId = entry.optString("_id", null);
+                    break;
+                }
+            }
+
             JSONObject pending = new JSONObject();
             pending.put("id", UUID.randomUUID().toString());
             pending.put("title", website == null || website.isEmpty() ? "New credential" : website);
@@ -299,7 +329,8 @@ public class VaultAutofillService extends AutofillService {
             pending.put("username", values.username);
             pending.put("password", values.password);
             pending.put("category", "General");
-            pending.put("kind", "new");
+            pending.put("kind", kind);
+            if (existingId != null && !existingId.isEmpty()) pending.put("existingId", existingId);
             pending.put("createdAt", System.currentTimeMillis());
             pending.put("updatedAt", System.currentTimeMillis());
 
@@ -307,9 +338,17 @@ public class VaultAutofillService extends AutofillService {
             boolean merged = false;
             for (int i = 0; i < pendingItems.length(); i++) {
                 JSONObject existing = pendingItems.getJSONObject(i);
-                if (website != null && website.equalsIgnoreCase(existing.optString("website", "")) &&
-                    !values.username.isEmpty() && values.username.equalsIgnoreCase(existing.optString("username", ""))) {
+                boolean samePendingEntry = existingId != null && !existingId.isEmpty()
+                    && existingId.equals(existing.optString("existingId", ""));
+                boolean samePendingCredential = website != null
+                    && website.equalsIgnoreCase(existing.optString("website", ""))
+                    && !values.username.isEmpty()
+                    && values.username.equalsIgnoreCase(existing.optString("username", ""));
+                if (samePendingEntry || samePendingCredential) {
+                    existing.put("username", values.username);
                     existing.put("password", values.password);
+                    existing.put("kind", kind);
+                    if (existingId != null && !existingId.isEmpty()) existing.put("existingId", existingId);
                     existing.put("updatedAt", System.currentTimeMillis());
                     merged = true;
                     break;
@@ -317,7 +356,11 @@ public class VaultAutofillService extends AutofillService {
             }
             if (!merged) pendingItems.put(pending);
             prefs.edit().putString(KEY_PENDING_AUTOSAVE, pendingItems.toString()).apply();
-            android.widget.Toast.makeText(this, "New credential saved to VaultGuard Auto-Save Inbox", android.widget.Toast.LENGTH_SHORT).show();
+            android.util.Log.d(TAG, "Queued " + kind + " credential candidate for local Inbox");
+            String toastMessage = "updated".equals(kind)
+                ? "Credential update saved to VaultGuard Auto-Save Inbox"
+                : "New credential saved to VaultGuard Auto-Save Inbox";
+            android.widget.Toast.makeText(this, toastMessage, android.widget.Toast.LENGTH_SHORT).show();
             callback.onSuccess();
         } catch (Exception e) {
             android.util.Log.e(TAG, "Failed to queue native autofill candidate", e);
@@ -332,6 +375,39 @@ public class VaultAutofillService extends AutofillService {
         AutofillId passwordId = null;
         AutofillId focusedId = null;
         String webUrl = null;
+    }
+
+    private SaveInfo buildSaveInfo(AutofillFields fields) {
+        AutofillId usernameId = fields.usernameId;
+        AutofillId passwordId = fields.passwordId;
+        if (usernameId == null && passwordId == null) return null;
+
+        int dataTypes = 0;
+        if (usernameId != null) dataTypes |= SaveInfo.SAVE_DATA_TYPE_USERNAME;
+        if (passwordId != null) dataTypes |= SaveInfo.SAVE_DATA_TYPE_PASSWORD;
+
+        AutofillId requiredId;
+        AutofillId optionalId = null;
+        if (fields.focusedId != null && fields.focusedId.equals(usernameId)) {
+            requiredId = usernameId;
+            optionalId = passwordId;
+        } else if (fields.focusedId != null && fields.focusedId.equals(passwordId)) {
+            requiredId = passwordId;
+            optionalId = usernameId;
+        } else if (passwordId != null) {
+            requiredId = passwordId;
+            optionalId = usernameId;
+        } else {
+            requiredId = usernameId;
+        }
+
+        SaveInfo.Builder builder = new SaveInfo.Builder(dataTypes, new AutofillId[] { requiredId })
+            .setDescription("Review this credential in the VaultGuard Auto-Save Inbox")
+            .setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE);
+        if (optionalId != null && !optionalId.equals(requiredId)) {
+            builder.setOptionalIds(new AutofillId[] { optionalId });
+        }
+        return builder.build();
     }
 
     private static class CredentialValues {
@@ -722,6 +798,26 @@ public class VaultAutofillService extends AutofillService {
 
         builder.setAuthentication(intentSender);
         return builder.build();
+    }
+
+    /**
+     * Keep an authenticated unlock/search action available while the vault is
+     * locked. Decrypted entries remain cleared from native storage on lock.
+     */
+    private void sendSearchOnlyResponse(
+        FillCallback callback,
+        AutofillFields fields,
+        InlinePresentationSpec inlineSpec
+    ) {
+        Dataset searchDataset = buildSearchDataset(fields, inlineSpec);
+        if (searchDataset == null) {
+            callback.onSuccess(null);
+            return;
+        }
+        FillResponse.Builder responseBuilder = new FillResponse.Builder().addDataset(searchDataset);
+        SaveInfo saveInfo = buildSaveInfo(fields);
+        if (saveInfo != null) responseBuilder.setSaveInfo(saveInfo);
+        callback.onSuccess(responseBuilder.build());
     }
 
     private RemoteViews createPresentation(String title, String username, String password) {

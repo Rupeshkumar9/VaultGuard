@@ -20,6 +20,7 @@ import { useCrypto } from '../contexts/CryptoContext';
 import { isExtension, isNative } from '../utils/platform';
 import { getDomain, domainsMatch } from '../utils/helpers';
 import { vaultBridge } from '../services/android/vaultBridge';
+import { getVaultViewportStyle } from '../utils/viewport';
 
 
 export default function VaultPage() {
@@ -376,9 +377,14 @@ export default function VaultPage() {
     setCurrentView('vault');
   };
 
-  if (isExtension || isNative || isAutofillMode) {
+  if (isExtension || isAutofillMode) {
+    // Keep the deliberately compact popup UI limited to browser extensions and
+    // Android's dedicated AutofillActivity. The main Android app uses the full
+    // responsive dashboard below so its profile menu and navigation drawer are
+    // available on mobile screens.
+    const viewportStyle = getVaultViewportStyle({ isExtension, isNative, isAutofillMode });
     return (
-      <div className="flex flex-col h-screen w-full bg-bg-dark text-text-primary overflow-hidden font-sans select-none" style={isAutofillMode ? { width: '100%', height: '100%' } : { width: '380px', height: '600px' }}>
+      <div className="flex flex-col h-screen w-full bg-bg-dark text-text-primary overflow-hidden font-sans select-none" style={viewportStyle}>
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border-dark bg-surface-dark shrink-0">
           <div className="flex items-center gap-2">
@@ -600,7 +606,10 @@ export default function VaultPage() {
   }
 
   return (
-    <div className="flex h-screen bg-bg-dark text-text-primary overflow-hidden">
+    <div
+      className="flex h-screen bg-bg-dark text-text-primary overflow-hidden"
+      style={isNative ? { height: '100dvh' } : undefined}
+    >
       
       {/* 1. Desktop Sidebar */}
       <div className="hidden md:flex">
@@ -612,6 +621,7 @@ export default function VaultPage() {
           showTrashOnly={showTrashOnly}
           onSelectTrash={handleSelectTrash}
           onOpenAddEntry={handleOpenAddForm}
+          onOpenInbox={isNative ? () => handleSidebarViewChange('inbox') : undefined}
           onOpenGenerator={() => handleSidebarViewChange('generator')}
           onOpenSettings={() => handleSidebarViewChange('settings')}
           onLogoClick={handleLogoClick}
@@ -639,6 +649,7 @@ export default function VaultPage() {
                 handleOpenAddForm();
                 setIsMobileSidebarOpen(false);
               }}
+              onOpenInbox={isNative ? () => handleSidebarViewChange('inbox') : undefined}
               onOpenGenerator={() => handleSidebarViewChange('generator')}
               onOpenSettings={() => handleSidebarViewChange('settings')}
               onLogoClick={handleLogoClick}
@@ -648,7 +659,7 @@ export default function VaultPage() {
       )}
 
       {/* 3. Main content area */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Header */}
         <Header 
           searchQuery={searchQuery}
@@ -795,6 +806,7 @@ export default function VaultPage() {
           )}
 
           {currentView === 'generator' && <PasswordGenerator />}
+          {isNative && currentView === 'inbox' && <AutoSaveInbox />}
           {currentView === 'settings' && <SettingsPage />}
         </main>
       </div>

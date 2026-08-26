@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -13,30 +13,18 @@ export const ProtectedRoute = ({ children }) => {
   const [showUnlockPassword, setShowUnlockPassword] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [error, setError] = useState('');
+  const [biometricStatus, setBiometricStatus] = useState('unknown');
   const [hasBiometric, setHasBiometric] = useState(false);
   const [isBiometricPrompting, setIsBiometricPrompting] = useState(false);
+  const biometricInFlight = useRef(false);
+  const biometricEnrollmentAttempted = useRef(false);
+  const [biometricEnrollmentDeclined, setBiometricEnrollmentDeclined] = useState(false);
 
-  // Auto-unlock and Biometric check on mount
-  useEffect(() => {
-    if (!isNative || isUnlocked || !isAuthenticated || !user?.email) return;
-
-    const attemptAutoUnlock = async () => {
-      // Biometric unlock must always be backed by native authentication.
-      const available = await mobileAuth.checkBiometricAvailable();
-      setHasBiometric(available);
-
-      if (available) {
-        // Automatically trigger biometric unlock on screen load
-        triggerBiometricUnlock();
-      }
-    };
-
-    attemptAutoUnlock();
-  }, [isAuthenticated, isUnlocked, user]);
-
-  const triggerBiometricUnlock = async () => {
-    if (isBiometricPrompting || !user?.email) return;
+  const triggerBiometricUnlock = useCallback(async () => {
+    if (biometricInFlight.current || !user?.email) return;
+    biometricInFlight.current = true;
     setIsBiometricPrompting(true);
+    setError('');
     try {
       const password = await mobileAuth.loadSecureCredentials(user.email);
       if (password) {
@@ -47,10 +35,46 @@ export const ProtectedRoute = ({ children }) => {
       }
     } catch (err) {
       console.error('Biometric authentication failed:', err);
+      setError(err?.message || 'Biometric unlock failed. Try again or use your master password.');
     } finally {
+      biometricInFlight.current = false;
       setIsBiometricPrompting(false);
     }
-  };
+  }, [unlock, user?.email]);
+
+  // Hardware availability and VaultGuard credential enrollment are separate
+  // states. Only auto-prompt when both are ready for the active account.
+  useEffect(() => {
+    if (!isNative || isUnlocked || !isAuthenticated || !user?.email) return;
+    let cancelled = false;
+
+    const prepareBiometricUnlock = async () => {
+      try {
+        const availability = await mobileAuth.getBiometricStatus();
+        const configured = availability?.isAvailable
+          ? await mobileAuth.hasBiometricCredentials(user.email)
+          : false;
+        if (cancelled) return;
+        setBiometricStatus(availability?.status || 'unsupported');
+        setHasBiometric(!!configured);
+        setBiometricEnrollmentDeclined(
+          localStorage.getItem(`vaultguard_biometric_declined_${user.email.toLowerCase()}`) === '1'
+        );
+        if (availability?.isAvailable && configured) {
+          await triggerBiometricUnlock();
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Failed to prepare biometric unlock:', err);
+          setBiometricStatus('unsupported');
+          setHasBiometric(false);
+        }
+      }
+    };
+
+    prepareBiometricUnlock();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, isUnlocked, triggerBiometricUnlock, user?.email]);
 
   // 1. If auth is loading, show a full screen pulsing shield spinner
   if (isLoading || isUnlockStateLoading) {
@@ -76,10 +100,29 @@ export const ProtectedRoute = ({ children }) => {
       setError('');
       setIsUnlocking(true);
       try {
+        if (isNative && biometricEnrollmentDeclined) {
+          biometricEnrollmentAttempted.current = false;
+          localStorage.removeItem(`vaultguard_biometric_declined_${user.email.toLowerCase()}`);
+          setBiometricEnrollmentDeclined(false);
+        }
         // Unlock caches password in context memory
         const success = await unlock(unlockPassword);
         if (!success) {
           setError('Failed to unlock vault. Check your master password.');
+        } else if (isNative && !hasBiometric && biometricStatus === 'available' && !biometricEnrollmentAttempted.current) {
+          // A manual unlock is the safe point to offer first-time native
+          // enrollment without persisting the password in web storage.
+          biometricEnrollmentAttempted.current = true;
+          const declineKey = `vaultguard_biometric_declined_${user.email.toLowerCase()}`;
+          localStorage.removeItem(declineKey);
+          setBiometricEnrollmentDeclined(false);
+          try {
+            await mobileAuth.saveSecureCredentials(user.email, unlockPassword);
+          } catch (enrollmentError) {
+            console.warn('Biometric enrollment was not completed:', enrollmentError);
+            localStorage.setItem(declineKey, '1');
+            setBiometricEnrollmentDeclined(true);
+          }
         }
       } catch (err) {
         setError('Failed to unlock vault.');
@@ -155,6 +198,24 @@ export const ProtectedRoute = ({ children }) => {
                 <span>🔑</span>
                 <span>Unlock with Biometrics / System Lock</span>
               </button>
+            )}
+
+            {isNative && !hasBiometric && biometricStatus === 'available' && !biometricEnrollmentDeclined && (
+              <p className="text-center text-[11px] text-text-secondary">
+                Fingerprint unlock will be enabled after this password unlock.
+              </p>
+            )}
+
+            {isNative && !hasBiometric && biometricStatus === 'available' && biometricEnrollmentDeclined && (
+              <p className="text-center text-[11px] text-text-secondary">
+                Fingerprint setup was skipped. Enter your password again to retry enrollment.
+              </p>
+            )}
+
+            {isNative && biometricStatus === 'none_enrolled' && (
+              <p className="text-center text-[11px] text-text-secondary">
+                Enroll a strong fingerprint in Android Settings to enable biometric unlock.
+              </p>
             )}
 
             <div className="text-center pt-2">

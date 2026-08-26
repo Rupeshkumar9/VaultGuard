@@ -12,10 +12,17 @@
 }
 
 @layer base {
+  html, body, #root {
+    width: 100%;
+    min-height: 100%;
+    margin: 0;
+  }
+
   body {
     background-color: hsl(220, 20%, 6%);
     color: hsl(220, 10%, 92%);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100dvh;
   }
 }
 
@@ -51,5 +58,4 @@
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: hsl(175, 80%, 50%);
 }
-
 

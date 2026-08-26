@@ -83,7 +83,12 @@ export const vaultBridge = {
 
   async isBiometricAvailable() {
     const result = await VaultBridge.isBiometricAvailable();
-    return !!result?.isAvailable;
+    return result || { isAvailable: false, status: 'unsupported' };
+  },
+
+  async hasBiometricCredentials(email) {
+    const result = await VaultBridge.hasBiometricCredentials({ email });
+    return result || { isConfigured: false, status: 'missing' };
   },
 
   async verifyBiometric() {

@@ -3,7 +3,6 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { isExtension, isNative } from '../utils/platform';
-import { mobileAuth } from '../services/android/mobileAuth';
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -50,13 +49,6 @@ export default function LoginPage() {
       if (res && res.success) {
         // Account authentication and vault unlocking are separate steps. The
         // protected route will display the vault unlock screen explicitly.
-        // Store only authentication-bound biometric credentials on native devices.
-        // Never persist the master password in web storage or IndexedDB.
-        if (isNative) {
-          await mobileAuth.clearAutoUnlockPassword();
-          await mobileAuth.saveSecureCredentials(email, password);
-        }
-
         // Redirect to the protected dashboard, which will ask for the master password.
         navigate('/');
       }

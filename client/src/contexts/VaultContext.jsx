@@ -11,6 +11,7 @@ export const VaultProvider = ({ children }) => {
   const [entries, setEntries] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [nativeEntriesHydrated, setNativeEntriesHydrated] = useState(!isNative);
   const { encryptData, decryptData, isUnlocked } = useCrypto();
 
   // Helper to decrypt a single raw entry from the API
@@ -52,24 +53,23 @@ export const VaultProvider = ({ children }) => {
 
   // Load and decrypt cached entries from IndexedDB immediately upon unlock (mobile only)
   useEffect(() => {
-    if (isExtension) return;
+    if (isExtension || !isNative) return;
     const loadCachedEntries = async () => {
       if (isUnlocked) {
-        if (isNative) {
-          try {
-            const cachedCiphers = await localDb.getAllEntries();
-            if (cachedCiphers && cachedCiphers.length > 0) {
-              const decryptedCached = await Promise.all(
-                cachedCiphers.map(entry => decryptEntry(entry))
-              );
-              setEntries(decryptedCached);
-            }
-          } catch (err) {
-            console.error('Failed to load cached entries from IndexedDB:', err);
+        try {
+          const cachedCiphers = await localDb.getAllEntries();
+          if (cachedCiphers && cachedCiphers.length > 0) {
+            const decryptedCached = await Promise.all(
+              cachedCiphers.map(entry => decryptEntry(entry))
+            );
+            setEntries(decryptedCached);
           }
+        } catch (err) {
+          console.error('Failed to load cached entries from IndexedDB:', err);
         }
       } else {
         setEntries([]);
+        setNativeEntriesHydrated(false);
       }
     };
     loadCachedEntries();
@@ -77,9 +77,10 @@ export const VaultProvider = ({ children }) => {
 
   // Automatically sync active entries to the Capacitor native bridge when entries update
   useEffect(() => {
-    if (isExtension) return;
+    if (isExtension || !isNative) return;
     const syncAndVerify = async () => {
       if (isUnlocked) {
+        if (!nativeEntriesHydrated) return;
         const activeEntries = entries.filter(e => !e.isInTrash);
         await vaultBridge.updateVault(activeEntries);
         // Verify the sync worked
@@ -90,7 +91,7 @@ export const VaultProvider = ({ children }) => {
       }
     };
     syncAndVerify();
-  }, [entries, isUnlocked]);
+  }, [entries, isUnlocked, nativeEntriesHydrated]);
 
   // Fetch and decrypt all entries
   const fetchEntries = useCallback(async () => {
@@ -119,6 +120,7 @@ export const VaultProvider = ({ children }) => {
           response.data.map(entry => decryptEntry(entry))
         );
         setEntries(decryptedEntries);
+        if (isNative) setNativeEntriesHydrated(true);
         
       } else {
         throw new Error(response.message || 'Failed to fetch vault entries');
@@ -126,6 +128,7 @@ export const VaultProvider = ({ children }) => {
     } catch (err) {
       console.error('Error fetching vault:', err);
       setError(err.message || 'Failed to load vault entries');
+      if (isNative) setNativeEntriesHydrated(true);
     } finally {
       setIsLoading(false);
     }

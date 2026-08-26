@@ -3,6 +3,9 @@
   "appName": "VaultGuard",
   "webDir": "dist",
   "bundledWebRuntime": false,
+  "android": {
+    "loggingBehavior": "none"
+  },
   "plugins": {
     "CapacitorHttp": {
       "enabled": true

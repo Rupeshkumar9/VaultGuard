@@ -17,7 +17,8 @@ import {
   Gamepad2,
   MoreHorizontal,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Inbox
 } from 'lucide-react';
 import { useVault } from '../../contexts/VaultContext';
 
@@ -45,6 +46,7 @@ export default function Sidebar({
   onSelectFavorites,
   onSelectTrash,
   onOpenAddEntry,
+  onOpenInbox,
   onOpenGenerator,
   onOpenSettings,
   onLogoClick
@@ -203,6 +205,15 @@ export default function Sidebar({
             Tools
           </h3>
           <div className="space-y-0.5">
+            {onOpenInbox && (
+              <button
+                onClick={onOpenInbox}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all cursor-pointer"
+              >
+                <Inbox className="w-4.5 h-4.5 text-text-secondary/70" />
+                <span>Auto-Save Inbox</span>
+              </button>
+            )}
             <button
               onClick={onOpenGenerator}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all"

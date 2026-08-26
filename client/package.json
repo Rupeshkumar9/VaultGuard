@@ -7,11 +7,12 @@
     "dev": "vite",
     "build": "vite build && node build-extension-worker.js && node copy-build.js",
     "lint": "eslint .",
-    "test:extension": "node --test tests/siteIdentity.test.js",
+    "test:extension": "node --test tests/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.3.4",
     "@capacitor/core": "^8.3.4",
     "@serenity-kit/opaque": "^1.1.0",

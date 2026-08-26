@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { isExtension, isNative } from '../utils/platform';
-import { mobileAuth } from '../services/android/mobileAuth';
+import { isExtension } from '../utils/platform';
 
 export default function RegisterPage() {
   const { register, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -47,11 +46,6 @@ export default function RegisterPage() {
       if (res && res.success) {
         // Account registration and vault unlocking are separate steps. The
         // protected route will display the vault unlock screen explicitly.
-        // Save mobile credentials securely in KeyStore/Keychain for biometrics/device lock.
-        if (isNative) {
-          await mobileAuth.saveSecureCredentials(email, password);
-        }
-
         // Navigate to the protected dashboard and ask for the master password.
         navigate('/');
       }

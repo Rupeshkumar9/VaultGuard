@@ -20,11 +20,13 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.security.keystore.KeyProperties;
 
 @CapacitorPlugin(name = "VaultBridge")
@@ -46,10 +48,15 @@ public class VaultBridgePlugin extends Plugin {
     private static final String KEY_ENTRIES = "decrypted_entries";
     private static final String KEY_PENDING_AUTOSAVE = "pending_autosave";
     private static final String BIOMETRIC_PREFS_FILE = "vaultguard_biometric_store";
-    private static final String BIOMETRIC_KEY_ALIAS = "vaultguard_biometric_master";
+    // Versioned so keys created with the previous device-credential policy are
+    // never reused with the strong-biometric-only policy below.
+    private static final String BIOMETRIC_KEY_ALIAS = "vaultguard_biometric_master_v2";
     private static final String BIOMETRIC_IV = "iv";
     private static final String BIOMETRIC_CIPHERTEXT = "ciphertext";
     private static final String BIOMETRIC_EMAIL = "email";
+    private static final int BIOMETRIC_AUTHENTICATORS =
+        BiometricManager.Authenticators.BIOMETRIC_STRONG;
+    private final AtomicBoolean biometricOperationInProgress = new AtomicBoolean(false);
 
     private SharedPreferences getEncryptedPrefs() {
         Context context = getContext().getApplicationContext();
@@ -205,13 +212,45 @@ public class VaultBridgePlugin extends Plugin {
 
     @PluginMethod
     public void isBiometricAvailable(PluginCall call) {
+        JSObject result = new JSObject();
         if (!(getActivity() instanceof FragmentActivity)) {
-            call.resolve(new JSObject().put("isAvailable", false));
+            call.resolve(result.put("isAvailable", false).put("status", "unsupported"));
             return;
         }
 
-        int result = BiometricManager.from((FragmentActivity) getActivity()).canAuthenticate();
-        call.resolve(new JSObject().put("isAvailable", result == BiometricManager.BIOMETRIC_SUCCESS));
+        int authResult = BiometricManager.from((FragmentActivity) getActivity())
+            .canAuthenticate(BIOMETRIC_AUTHENTICATORS);
+        result.put("isAvailable", authResult == BiometricManager.BIOMETRIC_SUCCESS);
+        result.put("status", biometricStatus(authResult));
+        result.put("code", authResult);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void hasBiometricCredentials(PluginCall call) {
+        JSObject result = new JSObject().put("isConfigured", false).put("status", "missing");
+        String email = call.getString("email", null);
+        if (email == null || email.isEmpty()) {
+            call.resolve(result.put("status", "invalid_request"));
+            return;
+        }
+        try {
+            SharedPreferences prefs = getContext().getApplicationContext()
+                .getSharedPreferences(BIOMETRIC_PREFS_FILE, Context.MODE_PRIVATE);
+            String storedEmail = prefs.getString(BIOMETRIC_EMAIL, null);
+            String iv = prefs.getString(BIOMETRIC_IV, null);
+            String ciphertext = prefs.getString(BIOMETRIC_CIPHERTEXT, null);
+            KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+            keyStore.load(null);
+            boolean configured = storedEmail != null && email.equalsIgnoreCase(storedEmail)
+                && iv != null && !iv.isEmpty() && ciphertext != null && !ciphertext.isEmpty()
+                && keyStore.containsAlias(BIOMETRIC_KEY_ALIAS);
+            result.put("isConfigured", configured).put("status", configured ? "configured" : "missing");
+            call.resolve(result);
+        } catch (Exception e) {
+            android.util.Log.e("VaultBridge", "Biometric credential check failed", e);
+            call.resolve(result.put("status", "invalid"));
+        }
     }
 
     @PluginMethod
@@ -220,20 +259,32 @@ public class VaultBridgePlugin extends Plugin {
             call.reject("Biometric authentication requires an Android activity");
             return;
         }
+        if (!beginBiometricOperation(call)) return;
 
-        BiometricPrompt prompt = createPrompt((FragmentActivity) getActivity(),
-            new BiometricPrompt.AuthenticationCallback() {
-                @Override
-                public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
-                    call.resolve();
-                }
+        FragmentActivity activity = (FragmentActivity) getActivity();
+        activity.runOnUiThread(() -> {
+            try {
+                BiometricPrompt prompt = createPrompt(activity,
+                    new BiometricPrompt.AuthenticationCallback() {
+                        @Override
+                        public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
+                            finishBiometricOperation();
+                            call.resolve();
+                        }
 
-                @Override
-                public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
-                    call.reject(errString.toString());
-                }
-            });
-        prompt.authenticate(buildPromptInfo(false));
+                        @Override
+                        public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
+                            finishBiometricOperation();
+                            call.reject(errString.toString());
+                        }
+                    });
+                prompt.authenticate(buildPromptInfo());
+            } catch (Exception e) {
+                finishBiometricOperation();
+                android.util.Log.e("VaultBridge", "Failed to show biometric verification prompt", e);
+                call.reject("Failed to start biometric authentication", e);
+            }
+        });
     }
 
     @PluginMethod
@@ -248,37 +299,57 @@ public class VaultBridgePlugin extends Plugin {
             call.reject("Biometric authentication requires an Android activity");
             return;
         }
+        if (!beginBiometricOperation(call)) return;
 
         try {
             SecretKey key = getOrCreateBiometricKey();
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, key);
-            BiometricPrompt prompt = createPrompt((FragmentActivity) getActivity(),
-                new BiometricPrompt.AuthenticationCallback() {
-                    @Override
-                    public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
-                        try {
-                            Cipher authenticatedCipher = result.getCryptoObject().getCipher();
-                            byte[] ciphertext = authenticatedCipher.doFinal(password.getBytes(StandardCharsets.UTF_8));
-                            getContext().getApplicationContext().getSharedPreferences(BIOMETRIC_PREFS_FILE, Context.MODE_PRIVATE)
-                                .edit()
-                                .putString(BIOMETRIC_EMAIL, email)
-                                .putString(BIOMETRIC_IV, Base64.encodeToString(authenticatedCipher.getIV(), Base64.NO_WRAP))
-                                .putString(BIOMETRIC_CIPHERTEXT, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
-                                .apply();
-                            call.resolve();
-                        } catch (Exception e) {
-                            call.reject("Failed to protect biometric credentials", e);
-                        }
-                    }
+            FragmentActivity activity = (FragmentActivity) getActivity();
+            activity.runOnUiThread(() -> {
+                try {
+                    BiometricPrompt prompt = createPrompt(activity,
+                        new BiometricPrompt.AuthenticationCallback() {
+                            @Override
+                            public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
+                                try {
+                                    Cipher authenticatedCipher = result.getCryptoObject().getCipher();
+                                    byte[] ciphertext = authenticatedCipher.doFinal(password.getBytes(StandardCharsets.UTF_8));
+                                    getContext().getApplicationContext().getSharedPreferences(BIOMETRIC_PREFS_FILE, Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putString(BIOMETRIC_EMAIL, email)
+                                        .putString(BIOMETRIC_IV, Base64.encodeToString(authenticatedCipher.getIV(), Base64.NO_WRAP))
+                                        .putString(BIOMETRIC_CIPHERTEXT, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+                                        .apply();
+                                    call.resolve();
+                                } catch (Exception e) {
+                                    android.util.Log.e("VaultBridge", "Failed to protect biometric credentials", e);
+                                    call.reject("Failed to protect biometric credentials", e);
+                                } finally {
+                                    finishBiometricOperation();
+                                }
+                            }
 
-                    @Override
-                    public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
-                        call.reject(errString.toString());
-                    }
-                });
-            prompt.authenticate(buildPromptInfo(true), new BiometricPrompt.CryptoObject(cipher));
+                            @Override
+                            public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
+                                finishBiometricOperation();
+                                call.reject(errString.toString());
+                            }
+                        });
+                    prompt.authenticate(buildPromptInfo(), new BiometricPrompt.CryptoObject(cipher));
+                } catch (Exception e) {
+                    finishBiometricOperation();
+                    android.util.Log.e("VaultBridge", "Failed to show biometric enrollment prompt", e);
+                    call.reject("Failed to start biometric enrollment", e);
+                }
+            });
+        } catch (KeyPermanentlyInvalidatedException e) {
+            finishBiometricOperation();
+            clearBiometricStore();
+            call.reject("Biometric credentials expired after a fingerprint change. Please enroll again.");
         } catch (Exception e) {
+            finishBiometricOperation();
+            android.util.Log.e("VaultBridge", "Failed to initialize biometric enrollment cipher", e);
             call.reject("Failed to initialize biometric storage", e);
         }
     }
@@ -289,12 +360,14 @@ public class VaultBridgePlugin extends Plugin {
             call.reject("Biometric authentication requires an Android activity");
             return;
         }
+        if (!beginBiometricOperation(call)) return;
 
         SharedPreferences prefs = getContext().getApplicationContext().getSharedPreferences(BIOMETRIC_PREFS_FILE, Context.MODE_PRIVATE);
         String email = prefs.getString(BIOMETRIC_EMAIL, null);
         String ivValue = prefs.getString(BIOMETRIC_IV, null);
         String ciphertextValue = prefs.getString(BIOMETRIC_CIPHERTEXT, null);
         if (email == null || ivValue == null || ciphertextValue == null) {
+            finishBiometricOperation();
             call.reject("No biometric credentials found");
             return;
         }
@@ -304,35 +377,63 @@ public class VaultBridgePlugin extends Plugin {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key,
                 new GCMParameterSpec(128, Base64.decode(ivValue, Base64.NO_WRAP)));
-            BiometricPrompt prompt = createPrompt((FragmentActivity) getActivity(),
-                new BiometricPrompt.AuthenticationCallback() {
-                    @Override
-                    public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
-                        try {
-                            Cipher authenticatedCipher = result.getCryptoObject().getCipher();
-                            String password = new String(
-                                authenticatedCipher.doFinal(Base64.decode(ciphertextValue, Base64.NO_WRAP)),
-                                StandardCharsets.UTF_8
-                            );
-                            call.resolve(new JSObject().put("username", email).put("password", password));
-                        } catch (Exception e) {
-                            call.reject("Failed to decrypt biometric credentials", e);
-                        }
-                    }
+            FragmentActivity activity = (FragmentActivity) getActivity();
+            activity.runOnUiThread(() -> {
+                try {
+                    BiometricPrompt prompt = createPrompt(activity,
+                        new BiometricPrompt.AuthenticationCallback() {
+                            @Override
+                            public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
+                                try {
+                                    Cipher authenticatedCipher = result.getCryptoObject().getCipher();
+                                    String password = new String(
+                                        authenticatedCipher.doFinal(Base64.decode(ciphertextValue, Base64.NO_WRAP)),
+                                        StandardCharsets.UTF_8
+                                    );
+                                    call.resolve(new JSObject().put("username", email).put("password", password));
+                                } catch (Exception e) {
+                                    android.util.Log.e("VaultBridge", "Failed to decrypt biometric credentials", e);
+                                    call.reject("Failed to decrypt biometric credentials", e);
+                                } finally {
+                                    finishBiometricOperation();
+                                }
+                            }
 
-                    @Override
-                    public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
-                        call.reject(errString.toString());
-                    }
-                });
-            prompt.authenticate(buildPromptInfo(true), new BiometricPrompt.CryptoObject(cipher));
+                            @Override
+                            public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
+                                finishBiometricOperation();
+                                call.reject(errString.toString());
+                            }
+                        });
+                    prompt.authenticate(buildPromptInfo(), new BiometricPrompt.CryptoObject(cipher));
+                } catch (Exception e) {
+                    finishBiometricOperation();
+                    android.util.Log.e("VaultBridge", "Failed to show biometric unlock prompt", e);
+                    call.reject("Failed to start biometric unlock", e);
+                }
+            });
+        } catch (KeyPermanentlyInvalidatedException e) {
+            finishBiometricOperation();
+            clearBiometricStore();
+            call.reject("Biometric credentials expired after a fingerprint change. Please enroll again.");
         } catch (Exception e) {
+            finishBiometricOperation();
+            android.util.Log.e("VaultBridge", "Failed to initialize biometric unlock cipher", e);
             call.reject("Failed to initialize biometric storage", e);
         }
     }
 
     @PluginMethod
     public void clearBiometricCredentials(PluginCall call) {
+        try {
+            clearBiometricStore();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to clear biometric credentials", e);
+        }
+    }
+
+    private void clearBiometricStore() {
         try {
             getContext().getApplicationContext().getSharedPreferences(BIOMETRIC_PREFS_FILE, Context.MODE_PRIVATE)
                 .edit().clear().apply();
@@ -341,9 +442,8 @@ public class VaultBridgePlugin extends Plugin {
             if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
                 keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS);
             }
-            call.resolve();
         } catch (Exception e) {
-            call.reject("Failed to clear biometric credentials", e);
+            android.util.Log.e("VaultBridge", "Failed to clear biometric store", e);
         }
     }
 
@@ -366,28 +466,44 @@ public class VaultBridgePlugin extends Plugin {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             builder.setUserAuthenticationParameters(
                 0,
-                KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL
+                KeyProperties.AUTH_BIOMETRIC_STRONG
             );
         } else {
             builder.setUserAuthenticationRequired(true)
-                .setUserAuthenticationValidityDurationSeconds(-1);
+                .setUserAuthenticationValidityDurationSeconds(-1)
+                .setInvalidatedByBiometricEnrollment(true);
         }
 
         generator.init(builder.build());
         return generator.generateKey();
     }
 
-    private BiometricPrompt.PromptInfo buildPromptInfo(boolean allowDeviceCredential) {
+    private boolean beginBiometricOperation(PluginCall call) {
+        if (biometricOperationInProgress.compareAndSet(false, true)) return true;
+        call.reject("Biometric authentication is already in progress");
+        return false;
+    }
+
+    private void finishBiometricOperation() {
+        biometricOperationInProgress.set(false);
+    }
+
+    private BiometricPrompt.PromptInfo buildPromptInfo() {
         BiometricPrompt.PromptInfo.Builder builder = new BiometricPrompt.PromptInfo.Builder()
             .setTitle("Biometric Unlock")
             .setSubtitle("Authenticate to access your VaultGuard credentials")
-            .setDescription("Use your fingerprint, face, or device credential.");
-        if (allowDeviceCredential) {
-            builder.setDeviceCredentialAllowed(true);
-        } else {
-            builder.setNegativeButtonText("Cancel");
-        }
+            .setDescription("Use your enrolled fingerprint or strong biometric.")
+            .setAllowedAuthenticators(BIOMETRIC_AUTHENTICATORS)
+            .setNegativeButtonText("Cancel");
         return builder.build();
+    }
+
+    private String biometricStatus(int result) {
+        if (result == BiometricManager.BIOMETRIC_SUCCESS) return "available";
+        if (result == BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED) return "none_enrolled";
+        if (result == BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE) return "no_hardware";
+        if (result == BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE) return "hardware_unavailable";
+        return "unsupported";
     }
 
     private BiometricPrompt createPrompt(

@@ -1,18 +1,36 @@
 import { localDb } from './localDb';
 import { vaultBridge } from './vaultBridge';
 
+let biometricLoadPromise = null;
+
 export const mobileAuth = {
+  async getBiometricStatus() {
+    try {
+      return await vaultBridge.isBiometricAvailable();
+    } catch (err) {
+      console.warn('Biometrics not available on this device:', err);
+      return { isAvailable: false, status: 'unsupported' };
+    }
+  },
+
+  async hasBiometricCredentials(email) {
+    if (!email) return false;
+    try {
+      const result = await vaultBridge.hasBiometricCredentials(email);
+      return !!result?.isConfigured;
+    } catch (err) {
+      console.warn('Biometric credentials are not configured:', err);
+      return false;
+    }
+  },
+
   /**
    * Checks if biometric unlock (fingerprint/FaceID) is available on the device.
    * @returns {Promise<boolean>}
    */
   async checkBiometricAvailable() {
-    try {
-      return await vaultBridge.isBiometricAvailable();
-    } catch (err) {
-      console.warn('Biometrics not available on this device:', err);
-      return false;
-    }
+    const result = await this.getBiometricStatus();
+    return !!result?.isAvailable;
   },
 
   /**
@@ -38,12 +56,8 @@ export const mobileAuth = {
    * @param {string} password 
    */
   async saveSecureCredentials(email, password) {
-    try {
-      if (!email || !password) return;
-      await vaultBridge.saveBiometricCredentials(email, password);
-    } catch (err) {
-      console.error('Failed to save biometric credentials:', err);
-    }
+    if (!email || !password) throw new Error('Email and password are required for biometric enrollment.');
+    return vaultBridge.saveBiometricCredentials(email, password);
   },
 
   /**
@@ -52,14 +66,24 @@ export const mobileAuth = {
    * @returns {Promise<string|null>}
    */
   async loadSecureCredentials(email) {
-    try {
-      if (!email) return null;
-      if (!(await this.checkBiometricAvailable())) return null;
+    if (!email) throw new Error('Account email is required for biometric unlock.');
+    if (biometricLoadPromise) return biometricLoadPromise;
+
+    const currentLoad = (async () => {
+      const status = await vaultBridge.isBiometricAvailable();
+      if (!status?.isAvailable) return null;
       const credentials = await vaultBridge.loadBiometricCredentials();
-      return credentials?.password || null;
-    } catch (err) {
-      console.error('Failed to load biometric credentials:', err);
-      return null;
+      if (!credentials?.password || credentials.username?.toLowerCase() !== email.toLowerCase()) {
+        throw new Error('No biometric credentials are configured for this account.');
+      }
+      return credentials.password;
+    })();
+    biometricLoadPromise = currentLoad;
+
+    try {
+      return await currentLoad;
+    } finally {
+      if (biometricLoadPromise === currentLoad) biometricLoadPromise = null;
     }
   },
 
