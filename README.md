@@ -219,3 +219,7 @@ Follow these steps to run VaultGuard locally on your machine.
 
 ## 📄 License
 This project is licensed under the MIT License.
+
+---
+
+Hey, edited the README.md file on VaultGuard repo.
