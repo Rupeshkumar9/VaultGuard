@@ -4,6 +4,24 @@ An enterprise-grade, **Zero-Knowledge** password manager designed for Web browse
 
 VaultGuard is engineered around absolute privacy, ensuring that your raw credentials never touch the internet and are encrypted client-side before being synchronized.
 
+
+---
+
+## 🧪 Test / Play Account
+
+Want to explore VaultGuard without creating a new account? Use the public test account below:
+
+**Email:** `john@gmail.com`  
+**Password:** `Mfd2AVwi231tWMYv`
+
+> **Note:** This is a public test account intended only for exploring and testing VaultGuard. Do not store any real passwords, personal information, financial data, or other sensitive credentials in this account.
+
+You can also create your own account using the **Sign Up** option to test VaultGuard independently.
+
+### ⚠️ Beta Notice
+
+VaultGuard is currently in beta and is primarily intended as a demonstration and testing project. While it implements the core features and security architecture of a modern password manager, it should not yet be used to store real-world sensitive credentials.
+
 ---
 
 ## 🚀 Key Architectural Pillars
