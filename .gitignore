@@ -47,6 +47,7 @@ extension/worker-dist/
 # Developer guide containing local build instructions (ignored)
 DEVELOPER_GUIDE.md
 tasks.md
+issues.md
 VaultGuard_chrome_latest_ext.zip
 VaultGuard_firefox_latest_ext.zip
 

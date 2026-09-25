@@ -222,11 +222,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (email, password, masterPasswordHint, registrationKey, name = '') => {
+  const register = async (email, password, masterPasswordHint, name = '') => {
     setIsLoading(true);
     try {
       if (isExtension) {
-        const response = await registerWithOpaque({ email, password, name, masterPasswordHint, registrationKey });
+        const response = await registerWithOpaque({ email, password, name, masterPasswordHint });
         if (response.success) {
           await chrome.runtime.sendMessage({
             action: 'UNLOCK_VAULT',
@@ -241,7 +241,7 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      const response = await registerWithOpaque({ email, password, name, masterPasswordHint, registrationKey });
+      const response = await registerWithOpaque({ email, password, name, masterPasswordHint });
       if (response.success) {
         setToken(response.token);
         cacheUser(response.user);

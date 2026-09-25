@@ -1,5 +1,5 @@
-const crypto = require('crypto');
-const opaque = require('@serenity-kit/opaque');
+import crypto from 'crypto';
+import opaque from '@serenity-kit/opaque';
 
 const CHALLENGE_TTL_MS = 2 * 60 * 1000;
 const challenges = new Map();
@@ -86,7 +86,7 @@ async function finishLogin({ challengeId, finishLoginRequest, email }) {
   });
 }
 
-module.exports = {
+export {
   createRegistrationResponse,
   startLogin,
   finishLogin,

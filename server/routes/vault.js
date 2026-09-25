@@ -1,6 +1,7 @@
-const express = require('express');
-const VaultEntry = require('../models/VaultEntry');
-const { protect } = require('../middleware/auth');
+import express from 'express';
+import mongoose from 'mongoose';
+import VaultEntry from '../models/VaultEntry.js';
+import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const validateIds = (ids) => (
   Array.isArray(ids) &&
   ids.length <= MAX_BULK_IDS &&
-  ids.every((id) => typeof id === 'string' && require('mongoose').isValidObjectId(id))
+  ids.every((id) => typeof id === 'string' && mongoose.isValidObjectId(id))
 );
 
 // All vault routes require authentication
@@ -439,4 +440,4 @@ router.post('/:id/restore', async (req, res, next) => {
   }
 });
 
-module.exports = router;
+export default router;

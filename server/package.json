@@ -10,7 +10,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "@serenity-kit/opaque": "^1.1.0",
     "cookie-parser": "^1.4.7",

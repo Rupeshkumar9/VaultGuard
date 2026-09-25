@@ -3,20 +3,20 @@
  * Developed by Rupesh (https://github.com/rupeshkumar9)
  */
 
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const cookieParser = require('cookie-parser');
-const dotenv = require('dotenv');
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
+import dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
 
-const connectDB = require('./config/db');
-const errorHandler = require('./middleware/errorHandler');
-const authRoutes = require('./routes/auth');
-const vaultRoutes = require('./routes/vault');
+import connectDB from './config/db.js';
+import errorHandler from './middleware/errorHandler.js';
+import authRoutes from './routes/auth.js';
+import vaultRoutes from './routes/vault.js';
 
 const app = express();
 
@@ -113,7 +113,7 @@ app.use(cookieParser());
 // ──── Routes ────
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.status(200).json({
     success: true,
     message: 'VaultGuard API is running 🔐',

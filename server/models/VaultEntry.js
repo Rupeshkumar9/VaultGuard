@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const vaultEntrySchema = new mongoose.Schema(
   {
@@ -82,4 +82,5 @@ vaultEntrySchema.index({ user: 1, category: 1 });
 vaultEntrySchema.index({ user: 1, isFavorite: 1 });
 vaultEntrySchema.index({ user: 1, title: 'text' });
 
-module.exports = mongoose.model('VaultEntry', vaultEntrySchema);
+const VaultEntry = mongoose.model('VaultEntry', vaultEntrySchema);
+export default VaultEntry;

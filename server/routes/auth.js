@@ -1,11 +1,11 @@
-const express = require('express');
-const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
-const User = require('../models/User');
-const VaultEntry = require('../models/VaultEntry');
-const { protect } = require('../middleware/auth');
-const opaqueAuth = require('../opaqueAuth');
+import express from 'express';
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+import User from '../models/User.js';
+import VaultEntry from '../models/VaultEntry.js';
+import { protect } from '../middleware/auth.js';
+import * as opaqueAuth from '../opaqueAuth.js';
 
 const router = express.Router();
 
@@ -66,13 +66,10 @@ const sendTokenResponse = (user, statusCode, res) => {
 // ──────────────────────────────────────────────
 router.post('/opaque/register/start', async (req, res, next) => {
   try {
-    const { email, registrationRequest, registrationKey } = req.body;
+    const { email, registrationRequest } = req.body;
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail) || typeof registrationRequest !== 'string' || !registrationRequest) {
       return res.status(400).json({ success: false, message: 'Valid registration details are required.' });
-    }
-    if (!process.env.REGISTRATION_KEY || registrationKey !== process.env.REGISTRATION_KEY) {
-      return res.status(403).json({ success: false, message: 'Invalid registration key.' });
     }
     if (await User.exists({ email: normalizedEmail })) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
@@ -97,7 +94,6 @@ router.post('/opaque/register/finish', async (req, res, next) => {
       email,
       name,
       masterPasswordHint,
-      registrationKey,
       registrationRecord,
     } = req.body;
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -106,9 +102,6 @@ router.post('/opaque/register/finish', async (req, res, next) => {
         typeof registrationRecord !== 'string' ||
         !registrationRecord) {
       return res.status(400).json({ success: false, message: 'Valid registration details are required.' });
-    }
-    if (!process.env.REGISTRATION_KEY || registrationKey !== process.env.REGISTRATION_KEY) {
-      return res.status(403).json({ success: false, message: 'Invalid registration key.' });
     }
 
     const challenge = opaqueAuth.consumeChallenge(challengeId, 'register');
@@ -203,7 +196,7 @@ router.post('/opaque/password/start', protect, async (req, res, next) => {
 // POST /api/auth/logout
 // Clear the auth cookie
 // ──────────────────────────────────────────────
-router.post('/logout', (req, res) => {
+router.post('/logout', (_req, res) => {
   const cookieOptions = {
     expires: new Date(Date.now() + 5 * 1000), // Expire in 5 seconds
     httpOnly: true,
@@ -473,4 +466,4 @@ router.delete('/delete-account', protect, async (req, res, next) => {
   }
 });
 
-module.exports = router;
+export default router;

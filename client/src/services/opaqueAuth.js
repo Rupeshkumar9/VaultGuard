@@ -43,12 +43,11 @@ export async function createOpaqueRegistrationRecord(password) {
   };
 }
 
-export async function registerWithOpaque({ email, password, name, masterPasswordHint, registrationKey }) {
+export async function registerWithOpaque({ email, password, name, masterPasswordHint }) {
   await waitForOpaque();
   const start = opaque.client.startRegistration({ password });
   const challenge = await api.post('/auth/opaque/register/start', {
     email,
-    registrationKey,
     registrationRequest: start.registrationRequest,
   });
   const result = opaque.client.finishRegistration({
@@ -61,7 +60,6 @@ export async function registerWithOpaque({ email, password, name, masterPassword
     email,
     name,
     masterPasswordHint,
-    registrationKey,
     registrationRecord: result.registrationRecord,
   });
 }

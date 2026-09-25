@@ -13,6 +13,8 @@ let activeDropdown = null;
 let activeIconOverlays = new Map(); // Map of Input -> Icon Div in shadow
 let activeInputForDropdown = null;
 let scanScheduled = false;
+let inputObserver = null;
+const observedInputRoots = new WeakSet();
 
 // Track submitted values to prompt for save
 let lastTypedUsername = '';
@@ -107,13 +109,74 @@ function createShieldSvg() {
 }
 
 // ──── DOM Inputs Scanner ────
+function observeInputRoot(root) {
+  if (!inputObserver || !root || observedInputRoots.has(root)) return;
+  inputObserver.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['type', 'autocomplete', 'disabled', 'readonly'],
+  });
+  observedInputRoots.add(root);
+}
+
+// querySelectorAll() does not cross Shadow DOM boundaries. Walk every open
+// shadow root so web-component forms (Reddit, Shopify, Adobe, and similar sites)
+// are treated like ordinary forms. Closed shadow roots remain intentionally
+// inaccessible to extensions and cannot be filled safely.
+function queryComposedElements(selector, root = document) {
+  const matches = [];
+  const visitedRoots = new Set();
+
+  const visit = (queryRoot) => {
+    if (!queryRoot?.querySelectorAll || visitedRoots.has(queryRoot)) return;
+    visitedRoots.add(queryRoot);
+    observeInputRoot(queryRoot);
+
+    queryRoot.querySelectorAll('*').forEach(element => {
+      if (element.matches(selector)) matches.push(element);
+      if (element.shadowRoot) visit(element.shadowRoot);
+    });
+  };
+
+  visit(root);
+  return matches;
+}
+
+function getAutocompleteTokens(input) {
+  return (input?.getAttribute('autocomplete') || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function hasAutocompleteToken(input, token) {
+  return getAutocompleteTokens(input).includes(token);
+}
+
+function getDeepActiveElement(root = document) {
+  let active = root.activeElement || null;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  return active;
+}
+
 function getInputHint(input) {
+  const inputRoot = input.getRootNode?.() || document;
   const labelledBy = (input.getAttribute('aria-labelledby') || '')
     .split(/\s+/)
     .filter(Boolean)
-    .map(id => document.getElementById(id)?.textContent || '')
+    .map(id => inputRoot.getElementById?.(id)?.textContent || document.getElementById(id)?.textContent || '')
     .join(' ');
-  const labelText = input.closest('label')?.textContent || '';
+  const labelText = Array.from(input.labels || []).map(label => label.textContent || '').join(' ') ||
+    input.closest('label')?.textContent || '';
+  const shadowHost = inputRoot.host;
+  const hostHint = shadowHost ? [
+    shadowHost.id,
+    shadowHost.getAttribute('name'),
+    shadowHost.getAttribute('autocomplete'),
+    shadowHost.getAttribute('aria-label'),
+    shadowHost.getAttribute('placeholder'),
+  ].filter(Boolean).join(' ') : '';
 
   return [
     input.type,
@@ -124,6 +187,7 @@ function getInputHint(input) {
     input.getAttribute('placeholder'),
     labelledBy,
     labelText,
+    hostHint,
   ].filter(Boolean).join(' ').toLowerCase();
 }
 
@@ -133,8 +197,7 @@ function isUsernameLikeInput(input) {
   const type = (input.type || 'text').toLowerCase();
   if (!['text', 'email', 'tel'].includes(type)) return false;
 
-  const autocomplete = (input.autocomplete || '').toLowerCase();
-  if (autocomplete === 'username' || autocomplete === 'email') return true;
+  if (hasAutocompleteToken(input, 'username') || hasAutocompleteToken(input, 'email')) return true;
   if (type === 'email') return true;
 
   return /\b(email|e-mail|username|user\s*name|login|user\s*id|userid|account)\b/.test(getInputHint(input));
@@ -171,19 +234,21 @@ function scanForInputs() {
   }
 
   detectedInputs = detectedInputs.filter(pair => pair.password?.isConnected || pair.username?.isConnected);
-  const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
-  const usernameInputs = Array.from(document.querySelectorAll('input')).filter(isUsernameLikeInput);
+  const allDocumentInputs = queryComposedElements('input');
+  const passwordInputs = allDocumentInputs.filter(input => (input.type || '').toLowerCase() === 'password');
+  const usernameInputs = allDocumentInputs.filter(isUsernameLikeInput);
 
   const newDetected = [];
 
   passwordInputs.forEach(passInput => {
     if (passInput.disabled || passInput.readOnly) return;
     let usernameInput = null;
-    const scope = passInput.form || document;
-    const allInputs = Array.from(scope.querySelectorAll('input'));
+    const allInputs = passInput.form
+      ? allDocumentInputs.filter(input => input.form === passInput.form)
+      : allDocumentInputs;
 
     usernameInput = allInputs.find(input =>
-      (input.autocomplete || '').toLowerCase() === 'username' &&
+      hasAutocompleteToken(input, 'username') &&
       !input.disabled && !input.readOnly
     ) || null;
 
@@ -205,7 +270,7 @@ function scanForInputs() {
     }
 
     // Never offer an existing password in account creation or password-change fields.
-    if ((passInput.autocomplete || '').toLowerCase() === 'new-password') return;
+    if (hasAutocompleteToken(passInput, 'new-password')) return;
 
     newDetected.push({
       password: passInput,
@@ -683,18 +748,14 @@ async function init() {
 
   // Check if there is a pending credential from a previous page redirect
   await checkPendingCredentialOnLoad();
-  
+
+  // Observe both the light DOM and every open shadow root discovered by the
+  // composed-tree scan. Shadow-root mutations do not bubble to document.
+  inputObserver = new MutationObserver(scheduleInputScan);
+  observeInputRoot(document);
+
   await fetchMatchingLogins();
   scanForInputs();
-
-  // Observe SPA form changes without repeatedly scanning the entire document.
-  const observer = new MutationObserver(scheduleInputScan);
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['type', 'autocomplete', 'disabled', 'readonly'],
-  });
 
   // Monitor form submissions
   window.addEventListener('submit', (e) => {
@@ -712,7 +773,8 @@ async function init() {
   // Intercept button clicks that act as submit triggers
   document.addEventListener('click', (e) => {
     if (!isContentScriptAllowedOnCurrentPage()) return;
-    const btn = e.target.closest('button, input[type="submit"], input[type="button"], [role="button"], [class*="btn"], [class*="button"]');
+    const btn = e.composedPath().find(node => node instanceof Element &&
+      node.matches('button, input[type="submit"], input[type="button"], [role="button"], [class*="btn"], [class*="button"]'));
     if (btn) {
       const text = (btn.innerText || btn.value || '').toLowerCase();
       if (text.includes('log in') || text.includes('signin') || text.includes('submit') || text.includes('register') || text.includes('sign up') || text.includes('continue') || text.includes('next')) {
@@ -770,7 +832,7 @@ function autofillCredentials(username, password) {
       rect.width > 0 && rect.height > 0;
   };
 
-  const active = document.activeElement;
+  const active = getDeepActiveElement();
   let pair = detectedInputs.find(candidate =>
     candidate.username === active || candidate.password === active
   );
@@ -781,12 +843,17 @@ function autofillCredentials(username, password) {
   }
 
   if (!pair) {
-    const scope = active?.form || document;
-    const passwordInput = Array.from(scope.querySelectorAll('input[type="password"]'))
+    const allInputs = queryComposedElements('input');
+    const scopedInputs = active?.form
+      ? allInputs.filter(input => input.form === active.form)
+      : allInputs;
+    const passwordInput = scopedInputs
+      .filter(input => (input.type || '').toLowerCase() === 'password')
       .find(isVisible);
     if (passwordInput) {
-      const candidates = Array.from(scope.querySelectorAll('input'))
+      const candidates = scopedInputs
         .filter(input => ['text', 'email', 'tel'].includes((input.type || '').toLowerCase()))
+        .filter(input => !hasAutocompleteToken(input, 'one-time-code'))
         .filter(isVisible);
       pair = { password: passwordInput, username: candidates[0] || null };
     }

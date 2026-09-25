@@ -1,11 +1,11 @@
 services:
   mongodb:
-    build:
-      context: ./docker/mongodb
-    image: vaultguard-mongodb-local
+    image: mongo:latest
+    pull_policy: never
     container_name: vaultguard-mongodb
     restart: unless-stopped
-    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongodb-keyfile"]
+    entrypoint: ["/bin/bash", "/usr/local/bin/vaultguard-mongo-entrypoint.sh"]
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/configdb/mongodb-keyfile"]
     environment:
       MONGO_INITDB_DATABASE: vaultgaurd
       MONGO_INITDB_ROOT_USERNAME: vaultguard_local
@@ -14,6 +14,8 @@ services:
       - "27017:27017"
     volumes:
       - vaultguard_mongodb_data:/data/db
+      - vaultguard_mongodb_config:/data/configdb
+      - ./docker/mongodb/entrypoint.sh:/usr/local/bin/vaultguard-mongo-entrypoint.sh:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -29,3 +31,4 @@ services:
 
 volumes:
   vaultguard_mongodb_data:
+  vaultguard_mongodb_config:
