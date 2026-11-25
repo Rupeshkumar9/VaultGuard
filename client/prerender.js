@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { build } from 'vite';
 
@@ -8,9 +9,12 @@ const distDir = path.resolve(currentDir, 'dist');
 const ssgOutDir = path.resolve(currentDir, 'dist-ssg');
 
 const SSG_ROUTES = [
-  { route: '/', outFiles: ['index.html'], rewriteRootAssets: false },
-  { route: '/blog', outFiles: ['blog.html'], rewriteRootAssets: false },
-  { route: '/blog', outFiles: ['blog/index.html'], rewriteRootAssets: true },
+  { route: '/', outFile: 'index.html', rewriteRootAssets: false },
+  { route: '/blog', outFile: 'blog/index.html', rewriteRootAssets: true },
+];
+
+const CSR_SHELL_FILES = [
+  { outFile: 'dashboard/index.html', title: 'VaultGuard — Dashboard', rewriteRootAssets: true },
 ];
 
 function escapeHtmlAttr(value) {
@@ -19,6 +23,10 @@ function escapeHtmlAttr(value) {
     .replaceAll('"', '&quot;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function rewriteAssetPathsForSubdir(html) {
+  return html.replace(/(href|src)=["']\.\/(assets\/[^"']+)["']/g, '$1="/$2"');
 }
 
 function injectIntoTemplate(template, { html, meta }, rewriteRootAssets) {
@@ -36,11 +44,12 @@ function injectIntoTemplate(template, { html, meta }, rewriteRootAssets) {
     output = output.replace('</head>', `    ${descriptionTag}\n  </head>`);
   }
 
-  if (rewriteRootAssets) {
-    output = output.replace(/(href|src)=["']\.\/(assets\/[^"']+)["']/g, '$1="/$2"');
-  }
+  return rewriteRootAssets ? rewriteAssetPathsForSubdir(output) : output;
+}
 
-  return output;
+function buildCsrShell(template, { title, rewriteRootAssets }) {
+  let output = template.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  return rewriteRootAssets ? rewriteAssetPathsForSubdir(output) : output;
 }
 
 async function runPrerender() {
@@ -50,6 +59,21 @@ async function runPrerender() {
   }
 
   const templateHtml = fs.readFileSync(indexHtmlPath, 'utf-8');
+  if (!templateHtml.includes('<div id="root"></div>')) {
+    throw new Error('dist/index.html is already pre-rendered. Run "vite build" before "node prerender.js".');
+  }
+
+  // Remove any legacy flat blog.html if present
+  fs.rmSync(path.join(distDir, 'blog.html'), { force: true });
+
+  // Emit clean CSR HTML shells for nested app routes before overwriting dist/index.html
+  for (const shell of CSR_SHELL_FILES) {
+    const shellHtml = buildCsrShell(templateHtml, shell);
+    const outPath = path.join(distDir, shell.outFile);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, shellHtml, 'utf-8');
+    console.log(`🧩 Created CSR shell -> dist/${shell.outFile}`);
+  }
 
   try {
     await build({
@@ -74,13 +98,10 @@ async function runPrerender() {
     for (const target of SSG_ROUTES) {
       const rendered = render(target.route);
       const finalHtml = injectIntoTemplate(templateHtml, rendered, target.rewriteRootAssets);
-
-      for (const relativeOut of target.outFiles) {
-        const outPath = path.join(distDir, relativeOut);
-        fs.mkdirSync(path.dirname(outPath), { recursive: true });
-        fs.writeFileSync(outPath, finalHtml, 'utf-8');
-        console.log(`⚡ Pre-rendered ${target.route} -> dist/${relativeOut}`);
-      }
+      const outPath = path.join(distDir, target.outFile);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, finalHtml, 'utf-8');
+      console.log(`⚡ Pre-rendered ${target.route} -> dist/${target.outFile}`);
     }
   } finally {
     fs.rmSync(ssgOutDir, { recursive: true, force: true });
