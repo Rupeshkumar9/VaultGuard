@@ -2,75 +2,29 @@ import mongoose from 'mongoose';
 
 const vaultEntrySchema = new mongoose.Schema(
   {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-      index: true,
-    },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
 
     // ──── Metadata (stored as plaintext for search/filtering) ────
-    title: {
-      type: String,
-      required: [true, 'Title is required'],
-      trim: true,
-      maxlength: [255, 'Title cannot exceed 255 characters'],
-    },
-    website: {
-      type: String,
-      trim: true,
-      default: '',
-    },
+    title: { type: String, required: [true, 'Title is required'], trim: true, maxlength: [255, 'Title cannot exceed 255 characters'] },
+    website: { type: String, trim: true, default: '' },
+
     category: {
-      type: String,
-      trim: true,
-      default: 'General',
-      enum: [
-        'General',
-        'Social Media',
-        'Email',
-        'Banking',
-        'Shopping',
-        'Work',
-        'Entertainment',
-        'Development',
-        'Gaming',
-        'Other',
-      ],
+      type: String, trim: true, default: 'General',
+      enum: ['General', 'Social Media', 'Email', 'Banking', 'Shopping', 'Work', 'Entertainment', 'Development', 'Gaming', 'Other']
     },
-    isFavorite: {
-      type: Boolean,
-      default: false,
-    },
-    isInTrash: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
+
+    isFavorite: { type: Boolean, default: false },
+    isInTrash: { type: Boolean, default: false, index: true },
 
     // ──── Encrypted Data (encrypted on client, opaque to server) ────
-    encryptedData: {
-      type: String,
-      required: [true, 'Encrypted data is required'],
-    },
-    iv: {
-      type: String,
-      required: [true, 'Initialization vector is required'],
-    },
-    salt: {
-      type: String,
-      required: [true, 'Salt is required'],
-    },
+    encryptedData: { type: String, required: [true, 'Encrypted data is required'] },
+    iv: { type: String, required: [true, 'Initialization vector is required'] },
+    salt: { type: String, required: [true, 'Salt is required'] },
 
     // ──── Optional metadata ────
-    notes: {
-      type: String,
-      default: '',
-    },
-    lastUsed: {
-      type: Date,
-      default: null,
-    },
+    notes: { type: String, default: '' },
+    lastUsed: { type: Date, default: null },
+
   },
   {
     timestamps: true,
@@ -84,3 +38,4 @@ vaultEntrySchema.index({ user: 1, title: 'text' });
 
 const VaultEntry = mongoose.model('VaultEntry', vaultEntrySchema);
 export default VaultEntry;
+

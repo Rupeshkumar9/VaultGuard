@@ -9,9 +9,27 @@
   --color-accent-glow: hsla(175, 80%, 50%, 0.15);
   --color-text-primary: hsl(220, 10%, 92%);
   --color-text-secondary: hsl(220, 10%, 55%);
+
+  /* Marketing / Figma design tokens */
+  --color-vg-canvas: #0b0f14;
+  --color-vg-canvas-alt: #0d151c;
+  --color-vg-surface: #121821;
+  --color-vg-raised: #18222d;
+  --color-vg-footer: #090d12;
+  --color-vg-border: #283540;
+  --color-vg-border-header: #1d2933;
+  --color-vg-teal: #1ad5e6;
+  --color-vg-teal-soft: #102c34;
+  --color-vg-text-primary: #edf4f7;
+  --color-vg-text-secondary: #9aaab6;
+  --color-vg-text-muted: #6f808d;
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   html, body, #root {
     width: 100%;
     min-height: 100%;

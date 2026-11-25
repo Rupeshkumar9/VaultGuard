@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { isExtension } from '../utils/platform';
+import { isExtension, isNative } from '../utils/platform';
 
 export default function RegisterPage() {
   const { register, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -14,12 +14,13 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const dashboardRoute = isExtension || isNative ? '/' : '/dashboard';
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated) {
-      navigate('/');
+      navigate(dashboardRoute, { replace: true });
     }
-  }, [isAuthenticated, isAuthLoading, navigate]);
+  }, [isAuthenticated, isAuthLoading, navigate, dashboardRoute]);
 
 
 
@@ -46,7 +47,7 @@ export default function RegisterPage() {
         // Account registration and vault unlocking are separate steps. The
         // protected route will display the vault unlock screen explicitly.
         // Navigate to the protected dashboard and ask for the master password.
-        navigate('/');
+        navigate(dashboardRoute);
       }
     } catch (err) {
       console.error(err);

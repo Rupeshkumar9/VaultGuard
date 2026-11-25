@@ -13,12 +13,13 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [rememberPassword, setRememberPassword] = useState(false);
   const navigate = useNavigate();
+  const dashboardRoute = isExtension || isNative ? '/' : '/dashboard';
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated) {
-      navigate('/');
+      navigate(dashboardRoute, { replace: true });
     }
-  }, [isAuthenticated, isAuthLoading, navigate]);
+  }, [isAuthenticated, isAuthLoading, navigate, dashboardRoute]);
 
   useEffect(() => {
     // Pre-fill email from cached user if available
@@ -50,7 +51,7 @@ export default function LoginPage() {
         // Account authentication and vault unlocking are separate steps. The
         // protected route will display the vault unlock screen explicitly.
         // Redirect to the protected dashboard, which will ask for the master password.
-        navigate('/');
+        navigate(dashboardRoute);
       }
     } catch (err) {
       console.error(err);
