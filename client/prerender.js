@@ -113,7 +113,7 @@ async function runPrerender() {
 
   const blogPosts = readAllBlogPosts();
   const ssgTargets = [
-    { route: '/', outFile: 'index.html', rewriteRootAssets: false, initialPost: null },
+    { route: '/', outFile: 'index.html', rewriteRootAssets: true, initialPost: null },
     { route: '/blog', outFile: 'blog/index.html', rewriteRootAssets: true, initialPost: null },
     ...blogPosts.map((post) => ({
       route: `/blog/${post.slug}`,
