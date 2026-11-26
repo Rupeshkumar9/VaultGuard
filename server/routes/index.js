@@ -1,7 +1,7 @@
 import express from 'express';
 import authRoutes from './auth.routes.js';
 import vaultRoutes from './vault.routes.js';
-import { authLimiter, generalLimiter } from '../config/rateLimiter.js';
+import { generalLimiter } from '../config/rateLimiter.js';
 
 const router = express.Router();
 
@@ -15,7 +15,7 @@ router.get('/health', (_req, res) => {
 });
 
 // Auth routes (with auth rate limiting)
-router.use('/auth', authLimiter, authRoutes);
+router.use('/auth', authRoutes);
 
 // Vault routes (with general rate limiting)
 router.use('/vault', generalLimiter, vaultRoutes);

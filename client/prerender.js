@@ -3,15 +3,12 @@ import path from 'path';
 import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { build } from 'vite';
+import { parseMarkdownDocument } from './src/utils/frontmatter.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(currentDir, 'dist');
 const ssgOutDir = path.resolve(currentDir, 'dist-ssg');
-
-const SSG_ROUTES = [
-  { route: '/', outFile: 'index.html', rewriteRootAssets: false },
-  { route: '/blog', outFile: 'blog/index.html', rewriteRootAssets: true },
-];
+const blogContentDir = path.resolve(currentDir, 'src/content/blog');
 
 const CSR_SHELL_FILES = [
   { outFile: 'dashboard/index.html', title: 'VaultGuard — Dashboard', rewriteRootAssets: true },
@@ -25,11 +22,47 @@ function escapeHtmlAttr(value) {
     .replaceAll('>', '&gt;');
 }
 
+function serializeJsonForHtml(data) {
+  return JSON.stringify(data)
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026');
+}
+
 function rewriteAssetPathsForSubdir(html) {
   return html.replace(/(href|src)=["']\.\/(assets\/[^"']+)["']/g, '$1="/$2"');
 }
 
-function injectIntoTemplate(template, { html, meta }, rewriteRootAssets) {
+function readAllBlogPosts() {
+  if (!fs.existsSync(blogContentDir)) return [];
+
+  return fs
+    .readdirSync(blogContentDir)
+    .filter((fileName) => fileName.endsWith('.md'))
+    .sort()
+    .map((fileName) => {
+      const raw = fs.readFileSync(path.join(blogContentDir, fileName), 'utf-8');
+      const { meta, body } = parseMarkdownDocument(raw);
+      const fallbackSlug = fileName.replace(/\.md$/, '');
+      return {
+        fileName,
+        slug: String(meta.slug || fallbackSlug),
+        title: String(meta.title || fallbackSlug),
+        summary: String(meta.summary || ''),
+        topicId: String(meta.topicId || 'security-guides'),
+        badge: String(meta.badge || 'JOURNAL'),
+        eyebrow: String(meta.eyebrow || 'ARTICLE'),
+        ctaLabel: String(meta.ctaLabel || 'Read article'),
+        readTime: String(meta.readTime || '4 min read'),
+        iconKey: String(meta.iconKey || 'iconShieldCover'),
+        publishedAt: String(meta.publishedAt || '2026-01-01'),
+        featured: Boolean(meta.featured),
+        body,
+      };
+    });
+}
+
+function injectIntoTemplate(template, { html, meta }, { rewriteRootAssets, initialPost }) {
   let output = template.replace('<div id="root"></div>', `<div id="root">${html}</div>`);
 
   output = output.replace(
@@ -44,11 +77,16 @@ function injectIntoTemplate(template, { html, meta }, rewriteRootAssets) {
     output = output.replace('</head>', `    ${descriptionTag}\n  </head>`);
   }
 
+  if (initialPost) {
+    const payloadScript = `<script id="__VG_BLOG_POST__" type="application/json">${serializeJsonForHtml(initialPost)}</script>`;
+    output = output.replace('</body>', `    ${payloadScript}\n  </body>`);
+  }
+
   return rewriteRootAssets ? rewriteAssetPathsForSubdir(output) : output;
 }
 
 function buildCsrShell(template, { title, rewriteRootAssets }) {
-  let output = template.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  const output = template.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
   return rewriteRootAssets ? rewriteAssetPathsForSubdir(output) : output;
 }
 
@@ -63,10 +101,8 @@ async function runPrerender() {
     throw new Error('dist/index.html is already pre-rendered. Run "vite build" before "node prerender.js".');
   }
 
-  // Remove any legacy flat blog.html if present
   fs.rmSync(path.join(distDir, 'blog.html'), { force: true });
 
-  // Emit clean CSR HTML shells for nested app routes before overwriting dist/index.html
   for (const shell of CSR_SHELL_FILES) {
     const shellHtml = buildCsrShell(templateHtml, shell);
     const outPath = path.join(distDir, shell.outFile);
@@ -74,6 +110,18 @@ async function runPrerender() {
     fs.writeFileSync(outPath, shellHtml, 'utf-8');
     console.log(`🧩 Created CSR shell -> dist/${shell.outFile}`);
   }
+
+  const blogPosts = readAllBlogPosts();
+  const ssgTargets = [
+    { route: '/', outFile: 'index.html', rewriteRootAssets: false, initialPost: null },
+    { route: '/blog', outFile: 'blog/index.html', rewriteRootAssets: true, initialPost: null },
+    ...blogPosts.map((post) => ({
+      route: `/blog/${post.slug}`,
+      outFile: `blog/${post.slug}/index.html`,
+      rewriteRootAssets: true,
+      initialPost: post,
+    })),
+  ];
 
   try {
     await build({
@@ -95,9 +143,9 @@ async function runPrerender() {
     const serverEntryUrl = pathToFileURL(path.join(ssgOutDir, 'entry-ssg.mjs')).href;
     const { render } = await import(serverEntryUrl);
 
-    for (const target of SSG_ROUTES) {
-      const rendered = render(target.route);
-      const finalHtml = injectIntoTemplate(templateHtml, rendered, target.rewriteRootAssets);
+    for (const target of ssgTargets) {
+      const rendered = render(target.route, target.initialPost);
+      const finalHtml = injectIntoTemplate(templateHtml, rendered, target);
       const outPath = path.join(distDir, target.outFile);
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       fs.writeFileSync(outPath, finalHtml, 'utf-8');

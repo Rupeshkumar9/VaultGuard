@@ -3,6 +3,8 @@ import { marketingAssets } from '../../Assets/marketing';
 import { GITHUB_REPO_URL } from '../../data/marketingContent';
 
 export default function MarketingFooter({ variant = 'product' }) {
+  const currentYear = new Date().getFullYear();
+
   if (variant === 'blog') {
     return (
       <footer className="w-full border-t border-[#202a33] bg-vg-footer">
@@ -46,7 +48,7 @@ export default function MarketingFooter({ variant = 'product' }) {
           <div className="h-px w-full bg-[#25303a]" />
 
           <p className="text-[10px] text-vg-text-muted">
-            VaultGuard · Blog design concept
+            © {currentYear} VaultGuard. All rights reserved.
           </p>
         </div>
       </footer>
@@ -128,7 +130,7 @@ export default function MarketingFooter({ variant = 'product' }) {
         <div className="h-px w-full bg-[#25303a]" />
 
         <p className="text-[10px] text-vg-text-muted">
-          VaultGuard · Product design concept
+          © {currentYear} VaultGuard. All rights reserved.
         </p>
       </div>
     </footer>

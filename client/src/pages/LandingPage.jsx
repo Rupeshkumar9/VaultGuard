@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { marketingAssets } from '../Assets/marketing';
 import MarketingHeader from '../components/marketing/MarketingHeader';
 import MarketingFooter from '../components/marketing/MarketingFooter';
@@ -21,6 +22,23 @@ const CAPABILITY_ITEMS = [
 ];
 
 export default function LandingPage() {
+  const { hash } = useLocation();
+
+  useEffect(() => {
+    document.title = 'VaultGuard — Zero-Knowledge Password Manager';
+  }, []);
+
+  useEffect(() => {
+    if (hash) {
+      const target = document.getElementById(hash.slice(1));
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+    }
+    window.scrollTo(0, 0);
+  }, [hash]);
+
   return (
     <div className="min-h-screen w-full bg-vg-canvas text-vg-text-primary flex flex-col">
       <MarketingHeader variant="product" />

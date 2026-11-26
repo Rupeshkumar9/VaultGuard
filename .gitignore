@@ -44,10 +44,7 @@ platform-tools.zip
 extension/react-dist/
 extension/worker-dist/
 
-# Developer guide containing local build instructions (ignored)
-DEVELOPER_GUIDE.md
-tasks.md
-issues.md
+# extension build zip files
 VaultGuard_chrome_latest_ext.zip
 VaultGuard_firefox_latest_ext.zip
 

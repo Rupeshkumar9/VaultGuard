@@ -16,15 +16,21 @@ const ROUTE_META = {
   },
 };
 
-export function render(url) {
+export function render(url, initialPost = null) {
   const html = renderToString(
     <StrictMode>
       <StaticRouter location={url}>
-        <PublicRoutes />
+        <PublicRoutes initialPost={initialPost} />
       </StaticRouter>
     </StrictMode>
   );
 
-  const meta = ROUTE_META[url] || ROUTE_META['/'];
+  const meta = initialPost
+    ? {
+        title: `${initialPost.title} — VaultGuard Journal`,
+        description: initialPost.summary || ROUTE_META['/blog'].description,
+      }
+    : ROUTE_META[url] || ROUTE_META['/'];
+
   return { html, meta };
 }

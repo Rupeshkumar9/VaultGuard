@@ -1,23 +1,25 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X } from 'lucide-react';
 import MarketingHeader from '../components/marketing/MarketingHeader';
 import MarketingFooter from '../components/marketing/MarketingFooter';
 import BlogCoverArt from '../components/marketing/BlogCoverArt';
-import {
-  BLOG_TOPICS,
-  FEATURED_ARTICLE,
-  JOURNAL_ARTICLES,
-} from '../data/marketingContent';
+import { BLOG_TOPICS } from '../data/marketingContent';
+import { getArchiveBlogPosts, getFeaturedBlogPost } from '../utils/blogLoader';
 
 export default function BlogPage() {
   const [selectedTopic, setSelectedTopic] = useState('all');
-  const [activeArticle, setActiveArticle] = useState(null);
+
+  const featuredArticle = useMemo(() => getFeaturedBlogPost(), []);
+  const archiveArticles = useMemo(() => getArchiveBlogPosts(), []);
 
   const visibleArticles = useMemo(() => {
-    if (selectedTopic === 'all') return JOURNAL_ARTICLES;
-    return JOURNAL_ARTICLES.filter((article) => article.topicId === selectedTopic);
-  }, [selectedTopic]);
+    if (selectedTopic === 'all') return archiveArticles;
+    return archiveArticles.filter((article) => article.topicId === selectedTopic);
+  }, [archiveArticles, selectedTopic]);
+
+  useEffect(() => {
+    document.title = 'The VaultGuard Journal — Security Guides & Product Updates';
+  }, []);
 
   const handleTopicClick = (topicId) => {
     setSelectedTopic((prev) => (prev === topicId ? 'all' : topicId));
@@ -46,36 +48,37 @@ export default function BlogPage() {
         </section>
 
         {/* Blog / Featured story */}
-        <section className="w-full bg-vg-surface py-12 lg:py-[76px]">
-          <div className="mx-auto max-w-[1440px] px-5 md:px-10 lg:px-[78px]">
-            <div className="grid grid-cols-1 md:grid-cols-[44%_1fr] items-center gap-7 lg:gap-12">
-              <BlogCoverArt
-                iconKey={FEATURED_ARTICLE.iconKey}
-                badge={FEATURED_ARTICLE.badge}
-                size="featured"
-              />
+        {featuredArticle && (
+          <section className="w-full bg-vg-surface py-12 lg:py-[76px]">
+            <div className="mx-auto max-w-[1440px] px-5 md:px-10 lg:px-[78px]">
+              <div className="grid grid-cols-1 md:grid-cols-[44%_1fr] items-center gap-7 lg:gap-12">
+                <BlogCoverArt
+                  iconKey={featuredArticle.iconKey}
+                  badge={featuredArticle.badge}
+                  size="featured"
+                />
 
-              <div className="flex flex-col items-start gap-3.5">
-                <p className="text-[10px] font-semibold tracking-[1.1px] text-vg-teal uppercase">
-                  {FEATURED_ARTICLE.eyebrow}
-                </p>
-                <h2 className="text-[26px] sm:text-[30px] lg:text-[35px] font-bold leading-[1.18] text-vg-text-primary">
-                  {FEATURED_ARTICLE.title}
-                </h2>
-                <p className="text-[14px] leading-[1.55] text-vg-text-secondary max-w-[684px]">
-                  {FEATURED_ARTICLE.summary}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActiveArticle(FEATURED_ARTICLE)}
-                  className="pt-1 text-[12px] font-semibold text-vg-teal hover:underline cursor-pointer"
-                >
-                  {FEATURED_ARTICLE.ctaLabel} &nbsp;→
-                </button>
+                <div className="flex flex-col items-start gap-3.5">
+                  <p className="text-[10px] font-semibold tracking-[1.1px] text-vg-teal uppercase">
+                    {featuredArticle.eyebrow}
+                  </p>
+                  <h2 className="text-[26px] sm:text-[30px] lg:text-[35px] font-bold leading-[1.18] text-vg-text-primary">
+                    {featuredArticle.title}
+                  </h2>
+                  <p className="text-[14px] leading-[1.55] text-vg-text-secondary max-w-[684px]">
+                    {featuredArticle.summary}
+                  </p>
+                  <Link
+                    to={`/blog/${featuredArticle.slug}`}
+                    className="pt-1 text-[12px] font-semibold text-vg-teal hover:underline"
+                  >
+                    {featuredArticle.ctaLabel || 'Read article'} &nbsp;→
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Blog / Topic navigation */}
         <section className="w-full bg-vg-canvas py-9 lg:py-[44px]">
@@ -159,13 +162,12 @@ export default function BlogPage() {
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveArticle(article)}
-                    className="pt-2 w-fit text-[12px] font-semibold text-vg-teal hover:underline cursor-pointer"
+                  <Link
+                    to={`/blog/${article.slug}`}
+                    className="pt-2 w-fit text-[12px] font-semibold text-vg-teal hover:underline"
                   >
                     Read article &nbsp;→
-                  </button>
+                  </Link>
                 </article>
               ))}
             </div>
@@ -196,73 +198,6 @@ export default function BlogPage() {
       </main>
 
       <MarketingFooter variant="blog" />
-
-      {/* Interactive article reader modal */}
-      {activeArticle && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="article-modal-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
-          onClick={() => setActiveArticle(null)}
-        >
-          <div
-            className="w-full max-w-[680px] max-h-[85vh] overflow-y-auto rounded-[20px] border border-[#2b424f] bg-vg-surface p-6 sm:p-8 shadow-2xl space-y-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold tracking-[1.1px] text-vg-teal uppercase">
-                  {activeArticle.eyebrow} &nbsp;·&nbsp; {activeArticle.readTime}
-                </p>
-                <h2
-                  id="article-modal-title"
-                  className="text-[24px] sm:text-[28px] font-bold leading-tight text-vg-text-primary"
-                >
-                  {activeArticle.title}
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveArticle(null)}
-                aria-label="Close article"
-                className="rounded-lg border border-vg-border bg-vg-canvas p-2 text-vg-text-secondary hover:text-vg-text-primary transition-colors"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-
-            <BlogCoverArt
-              iconKey={activeArticle.iconKey}
-              badge={activeArticle.badge}
-              size="card"
-            />
-
-            <div className="space-y-4 text-[14px] leading-[1.7] text-vg-text-secondary">
-              <p className="text-vg-text-primary font-medium">{activeArticle.summary}</p>
-              {activeArticle.body.map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
-              ))}
-            </div>
-
-            <div className="pt-3 border-t border-vg-border flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setActiveArticle(null)}
-                className="text-[13px] font-medium text-vg-text-secondary hover:text-vg-text-primary cursor-pointer"
-              >
-                ← Back to journal
-              </button>
-              <Link
-                to="/register"
-                className="inline-flex h-[40px] items-center justify-center rounded-[10px] bg-vg-teal px-4 text-[13px] font-semibold text-vg-canvas hover:brightness-110 transition-all"
-              >
-                Get started with VaultGuard
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

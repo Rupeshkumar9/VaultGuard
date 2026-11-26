@@ -1,17 +1,31 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { marketingAssets } from '../../Assets/marketing';
 import { GITHUB_REPO_URL } from '../../data/marketingContent';
+import { checkPublicAuthStatus } from '../../utils/publicAuthCheck';
 
 export default function MarketingHeader({ variant = 'product' }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    checkPublicAuthStatus().then((authenticated) => {
+      if (!cancelled) {
+        setIsLoggedIn(authenticated);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const navLinks =
     variant === 'blog'
       ? [
           { label: 'Product', to: '/', type: 'route' },
-          { label: 'Security', to: '/#security', type: 'anchor' },
+          { label: 'Security', to: '/#security', type: 'route' },
           { label: 'Blog', to: '/blog', type: 'route', active: true },
           { label: 'GitHub', href: GITHUB_REPO_URL, type: 'external' },
         ]
@@ -21,6 +35,10 @@ export default function MarketingHeader({ variant = 'product' }) {
           { label: 'Platforms', href: '#platforms', type: 'hash' },
           { label: 'Blog', to: '/blog', type: 'route' },
         ];
+
+  const authAction = isLoggedIn
+    ? { label: 'Dashboard', to: '/dashboard' }
+    : { label: 'Sign in', to: '/login' };
 
   const closeMenu = () => setMobileMenuOpen(false);
 
@@ -101,18 +119,12 @@ export default function MarketingHeader({ variant = 'product' }) {
           {navLinks.map((item) => renderNavItem(item, false))}
         </nav>
 
-        <div className="hidden md:flex items-center gap-[21px] shrink-0">
+        <div className="hidden md:flex items-center shrink-0">
           <Link
-            to="/login"
-            className="text-[13px] font-medium text-vg-text-primary hover:text-vg-teal transition-colors whitespace-nowrap"
+            to={authAction.to}
+            className="inline-flex h-[42px] lg:h-[46px] min-w-[126px] lg:w-[140px] items-center justify-center rounded-[12px] bg-vg-teal px-[18px] py-[10px] text-[14px] font-semibold text-vg-canvas hover:brightness-110 transition-all whitespace-nowrap"
           >
-            Sign in
-          </Link>
-          <Link
-            to="/register"
-            className="inline-flex h-[42px] lg:h-[46px] min-w-[138px] lg:w-[150px] items-center justify-center rounded-[12px] bg-vg-teal px-[18px] py-[10px] text-[14px] font-semibold text-vg-canvas hover:brightness-110 transition-all whitespace-nowrap"
-          >
-            Get started
+            {authAction.label}
           </Link>
         </div>
 
@@ -144,18 +156,11 @@ export default function MarketingHeader({ variant = 'product' }) {
           </nav>
           <div className="pt-3 flex flex-col gap-2.5">
             <Link
-              to="/login"
-              onClick={closeMenu}
-              className="inline-flex h-[42px] items-center justify-center rounded-[12px] border border-vg-border bg-vg-surface px-4 text-[14px] font-semibold text-vg-text-primary"
-            >
-              Sign in
-            </Link>
-            <Link
-              to="/register"
+              to={authAction.to}
               onClick={closeMenu}
               className="inline-flex h-[44px] items-center justify-center rounded-[12px] bg-vg-teal px-4 text-[14px] font-semibold text-vg-canvas"
             >
-              Get started
+              {authAction.label}
             </Link>
           </div>
         </div>
