@@ -6,7 +6,6 @@
 import { StrictMode } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import './index.css';
-import App from './App.jsx';
 import { isExtension, isNative } from './utils/platform';
 import { getBlogPostMeta } from './utils/blogLoader';
 
@@ -16,6 +15,7 @@ if (isExtension) {
 }
 
 const rootEl = document.getElementById('root');
+const isAppTarget = isExtension || isNative;
 const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
 const normalizedPath = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
 const blogPostSlug = normalizedPath.startsWith('/blog/')
@@ -26,21 +26,28 @@ const isKnownBlogPost = Boolean(
 );
 
 const isPrerenderedWebRoute =
-  !isExtension &&
-  !isNative &&
+  !isAppTarget &&
   (normalizedPath === '/' ||
     normalizedPath === '/blog' ||
     normalizedPath === '/blog.html' ||
     isKnownBlogPost);
 
-const appTree = (
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+async function bootstrap() {
+  const { default: TargetApp } = isAppTarget
+    ? await import('./routes/AppTargetRoutes.jsx')
+    : await import('./routes/WebAppRoutes.jsx');
 
-if (isPrerenderedWebRoute && rootEl.hasChildNodes()) {
-  hydrateRoot(rootEl, appTree);
-} else {
-  createRoot(rootEl).render(appTree);
+  const appTree = (
+    <StrictMode>
+      <TargetApp />
+    </StrictMode>
+  );
+
+  if (isPrerenderedWebRoute && rootEl.hasChildNodes()) {
+    hydrateRoot(rootEl, appTree);
+  } else {
+    createRoot(rootEl).render(appTree);
+  }
 }
+
+bootstrap();
